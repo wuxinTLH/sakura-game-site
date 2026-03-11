@@ -16,11 +16,15 @@
           <router-link to="/local" class="nav-link" active-class="active">
             💾 本地游戏
           </router-link>
-          <router-link to="/add" class="nav-link" active-class="active">
+          <router-link v-if="adminStore.settings.upload_enabled" to="/add" class="nav-link" active-class="active">
             📤 上传游戏
           </router-link>
-          <router-link to="/editor" class="nav-link nav-link-editor" active-class="active">
+          <router-link v-if="adminStore.settings.editor_enabled" to="/editor" class="nav-link nav-link-editor"
+            active-class="active">
             ✏️ 编辑器
+          </router-link>
+          <router-link to="/admin" class="nav-link nav-link-admin" active-class="active">
+            ⚙️
           </router-link>
         </nav>
       </div>
@@ -56,6 +60,13 @@
     </footer>
   </div>
 </template>
+
+<script setup lang="ts">
+import { useAdminStore } from '@/stores/admin'
+
+const adminStore = useAdminStore()
+</script>
+
 
 <style scoped>
 .app-shell {
@@ -97,6 +108,18 @@
 .nav-link-editor:hover {
   opacity: 0.88;
   background: linear-gradient(135deg, var(--sakura-500), var(--sakura-600));
+}
+
+.nav-link-admin {
+  font-size: 1.1rem;
+  padding: 6px 10px;
+  color: var(--ink-400) !important;
+}
+
+.nav-link-admin:hover,
+.nav-link-admin.active {
+  background: var(--ink-100);
+  color: var(--ink-600) !important;
 }
 
 .logo {
