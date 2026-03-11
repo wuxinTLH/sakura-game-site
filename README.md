@@ -2,6 +2,8 @@
 
 > 一个精美的在线小游戏合集网站，支持游戏列表展示、搜索、在线游玩。
 
+> 本项目95%+由AI（Claude Sonnet 4.6+）生成
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-pink.svg)](./LICENSE)
 
 ---
@@ -11,7 +13,7 @@
 | 层     | 技术                                           |
 | ------ | ---------------------------------------------- |
 | 前端   | Vue 3 + TypeScript + Vite + Pinia + Vue Router |
-| 后端   | Node.js + Express + mysql2                     |
+| 后端   | Node.js + Express + mysql2 + multer            |
 | 数据库 | MySQL 8.x                                      |
 
 ---
@@ -20,35 +22,45 @@
 
 ```
 sakura-games-site/
-├── backend/                    # Node.js 后端
+├── backend/                      # Node.js 后端
 │   ├── config/
-│   │   └── database.js         # MySQL 连接池
+│   │   └── database.js           # MySQL 连接池
 │   ├── routes/
-│   │   └── games.js            # 游戏 CRUD + 搜索 API
-│   ├── .env.example            # 环境变量模板
+│   │   ├── games.js              # 游戏 CRUD + 搜索 API
+│   │   └── upload.js             # 文件上传 + 解析入库
+│   ├── .env.example              # 环境变量模板
 │   ├── package.json
-│   └── server.js               # Express 入口
-├── frontend/                   # Vue3 前端
+│   └── server.js                 # Express 入口
+├── frontend/                     # Vue3 前端
 │   ├── src/
-│   │   ├── api/games.ts        # Axios API 封装
-│   │   ├── assets/main.css     # 全局样式（桜主题）
+│   │   ├── api/
+│   │   │   └── games.ts          # Axios API 封装（含上传）
+│   │   ├── assets/
+│   │   │   └── main.css          # 全局样式（桜主题）
 │   │   ├── components/
-│   │   │   ├── GameCard.vue    # 游戏卡片组件
-│   │   │   └── SearchBar.vue   # 搜索框 + 标签筛选
-│   │   ├── router/index.ts     # Vue Router（含动态 title）
-│   │   ├── stores/games.ts     # Pinia 状态管理
-│   │   ├── types/game.ts       # TypeScript 类型定义
+│   │   │   ├── GameCard.vue      # 游戏卡片组件
+│   │   │   └── SearchBar.vue     # 搜索框 + 标签筛选
+│   │   ├── router/
+│   │   │   └── index.ts          # Vue Router（含动态 title）
+│   │   ├── stores/
+│   │   │   ├── games.ts          # Pinia 在线游戏状态
+│   │   │   └── localGames.ts     # Pinia 本地游戏状态（localStorage）
+│   │   ├── types/
+│   │   │   └── game.ts           # TypeScript 类型定义
 │   │   ├── views/
-│   │   │   ├── HomeView.vue    # 首页（游戏列表 + 搜索）
-│   │   │   └── GameView.vue    # 游戏详情 + 运行页
+│   │   │   ├── HomeView.vue      # 首页（游戏列表 + 搜索）
+│   │   │   ├── GameView.vue      # 游戏详情 + 运行页
+│   │   │   ├── EditorView.vue    # 游戏编辑器 + 实时预览
+│   │   │   ├── LocalGamesView.vue# 本地游戏列表
+│   │   │   └── AddGameView.vue   # 文件上传游戏页
 │   │   ├── App.vue
 │   │   └── main.ts
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.ts
 ├── database/
-│   ├── init.sql                # 数据库初始化 + 内置游戏
-│   └── game.sql                # 额外测试游戏数据
+│   ├── init.sql                  # 数据库初始化 + 内置游戏
+│   └── game.sql                  # 额外测试游戏数据
 ├── LICENSE
 └── README.md
 ```
@@ -95,7 +107,7 @@ sudo systemctl start mysql
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-username/sakura-games-site.git
+git clone https://github.com/wuxinTLH/sakura-games-site.git
 cd sakura-games-site
 ```
 
@@ -174,6 +186,18 @@ VITE ready in xxx ms
 
 ---
 
+## 页面说明
+
+| 路径        | 页面     | 说明                                              |
+| ----------- | -------- | ------------------------------------------------- |
+| `/`         | 首页     | 在线游戏列表，支持搜索和标签筛选                  |
+| `/game/:id` | 游戏页   | iframe 沙盒运行游戏，支持全屏                     |
+| `/editor`   | 编辑器   | 本地编写游戏代码 + 实时预览，保存至浏览器本地     |
+| `/local`    | 本地游戏 | 管理编辑器保存的本地游戏，支持游玩/编辑/导出/删除 |
+| `/add`      | 上传游戏 | 上传 `.html` / `.vue` / `.ts` 文件，解析后入库    |
+
+---
+
 ## API 文档
 
 ### 基础地址
@@ -192,6 +216,31 @@ http://localhost:8802/api
 | DELETE | `/games/:id`      | 下架游戏（软删除）          |
 | POST   | `/games/:id/play` | 记录游玩次数                |
 | GET    | `/health`         | 健康检查                    |
+
+### 上传接口
+
+| 方法 | 路径           | 说明                                |
+| ---- | -------------- | ----------------------------------- |
+| POST | `/upload/game` | 上传游戏文件（multipart/form-data） |
+
+#### 上传接口参数
+
+| 字段        | 类型   | 说明                                |
+| ----------- | ------ | ----------------------------------- |
+| file        | File   | 游戏文件，支持 `.html` `.vue` `.ts` |
+| name        | string | 游戏名称（必填）                    |
+| description | string | 游戏介绍                            |
+| tags        | string | 标签，逗号分隔                      |
+| author      | string | 作者                                |
+| sort_order  | number | 排序权重                            |
+
+#### 文件解析规则
+
+| 文件类型 | 处理方式                                               |
+| -------- | ------------------------------------------------------ |
+| `.html`  | 直接存入数据库，不做处理                               |
+| `.vue`   | 提取 `<template>` `<script>` `<style>` 拼装为完整 HTML |
+| `.ts`    | 移除 TypeScript 类型注解，包装进 HTML + Canvas 模板    |
 
 #### 列表查询参数
 
@@ -229,35 +278,40 @@ http://localhost:8802/api
 
 ---
 
-## 如何添加新游戏
-
-将游戏写成自包含的 HTML 文件（CSS+JS 内联），通过 API 添加：
-
-```bash
-curl -X POST http://localhost:8802/api/games \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "俄罗斯方块",
-    "description": "经典的方块消除游戏",
-    "game_code": "<!DOCTYPE html>...",
-    "tags": "益智,经典",
-    "author": "Sakura",
-    "sort_order": 80
-  }'
-```
-
----
-
 ## 功能特性
 
+### 在线游戏库
 - 🔍 **实时搜索** — 防抖关键词搜索 + 标签快捷筛选
 - 📄 **分页加载** — 加载更多按钮式分页
 - 🎮 **iframe 沙盒运行** — 游戏代码安全隔离执行
 - ⛶ **全屏模式** — 游戏页支持全屏游玩
+- 📊 **游玩统计** — 自动记录每局游玩次数
+
+### 游戏编辑器
+- ✏️ **实时预览** — 代码修改后 600ms 防抖自动刷新预览
+- 🔢 **行号显示** — 编辑器左侧同步行号
+- 📐 **布局切换** — 分栏 / 仅编辑 / 仅预览 三种模式
+- ⛶ **全屏预览** — 新窗口全屏预览游戏效果
+- 📋 **代码模板** — 内置空白 HTML 和 Canvas 两种模板
+- 💾 **本地保存** — 游戏数据持久化至 localStorage
+
+### 本地游戏
+- 📋 **列表管理** — 查看所有本地保存的游戏
+- ▶ **直接游玩** — 弹窗 iframe 沙盒运行
+- ✏️ **跳转编辑** — 一键回到编辑器继续修改
+- ⬇ **导出 HTML** — 下载为独立可运行的 HTML 文件
+- 🗑 **删除管理** — 确认后删除本地游戏
+
+### 文件上传
+- 📤 **拖拽上传** — 支持拖拽或点击选择文件
+- 🔍 **代码预览** — 上传前预览文件前 30 行
+- 🔄 **自动解析** — `.vue` / `.ts` 自动转换为可运行 HTML
+- ✅ **表单验证** — 必填项校验 + 错误提示
+
+### 通用
 - 📱 **响应式设计** — 适配桌面 / 平板 / 手机
 - 🌸 **桜主题** — 日式樱花风格视觉设计
 - 🔄 **动态页面 Title** — 进入游戏后 title 变为游戏名称
-- 📊 **游玩统计** — 自动记录每局游玩次数
 
 ---
 
@@ -266,9 +320,11 @@ curl -X POST http://localhost:8802/api/games \
 | 问题                           | 原因           | 解决                   |
 | ------------------------------ | -------------- | ---------------------- |
 | `Cannot find module 'express'` | 未安装依赖     | `npm install`          |
+| `Cannot find module 'multer'`  | 未安装 multer  | `npm install multer`   |
 | `MySQL 连接失败`               | 密码或库名错误 | 检查 `.env`            |
 | `EADDRINUSE`                   | 端口被占用     | 修改 `.env` 中的端口号 |
 | 前端空白无内容                 | 后端未启动     | 先启动后端再刷新前端   |
+| 上传文件报 413                 | 文件超过限制   | 文件需小于 10MB        |
 
 ---
 

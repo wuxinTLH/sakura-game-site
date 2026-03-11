@@ -43,3 +43,9 @@ export const updateGame = (id: number, payload: Partial<GameCreatePayload>) =>
 
 export const deleteGame = (id: number) =>
     http.delete(`/games/${id}`).then(r => r.data)
+
+// 新增到 api/games.ts 末尾
+export const uploadGame = (formData: FormData) =>
+    http.post('/upload/game', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)

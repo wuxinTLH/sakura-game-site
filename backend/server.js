@@ -11,6 +11,10 @@ const PORT = process.env.PORT || 8802;
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:8801')
     .split(',').map(s => s.trim());
 
+const uploadRouter = require('./routes/upload')
+
+app.use('/api/upload', uploadRouter)
+
 app.use(cors({
     origin(origin, cb) {
         if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
@@ -42,3 +46,4 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () => {
     console.log(`🌸  桜游戏屋 API 运行在 http://localhost:${PORT}`);
 });
+
