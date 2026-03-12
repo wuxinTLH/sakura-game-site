@@ -16,6 +16,9 @@ http.interceptors.response.use(
     res => res,
     err => {
         const msg = err.response?.data?.message || err.message || '网络错误'
+        if (err.response?.status === 401) {
+            localStorage.removeItem('admin_token')
+        }
         return Promise.reject(new Error(msg))
     }
 )
@@ -31,3 +34,19 @@ export const getSettings = () =>
 
 export const updateSettings = (settings: Record<string, boolean>) =>
     http.put('/settings', settings).then(r => r.data)
+
+export const adminGetGames = (params: { page?: number; limit?: number; search?: string }) =>
+    http.get('/games', { params }).then(r => r.data)
+
+export const adminUpdateGame = (id: number, payload: Record<string, any>) =>
+    http.put(`/games/${id}`, payload).then(r => r.data)
+
+export const adminDeleteGame = (id: number) =>
+    http.delete(`/games/${id}`).then(r => r.data)
+
+export const adminToggleGame = (id: number) =>
+    http.put(`/games/${id}/toggle`).then(r => r.data)
+
+// ← 之前漏掉的
+export const getApiList = () =>
+    http.get('/api-list').then(r => r.data)

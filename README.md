@@ -24,26 +24,33 @@
 sakura-games-site/
 ├── backend/                      # Node.js 后端
 │   ├── config/
-│   │   └── database.js           # MySQL 连接池
+│   │   └── database.js           # MySQL 连接池 + 自动重连 + 慢查询日志
 │   ├── middleware/
-│   │   └── auth.js               # 管理员 Token 验证中间件
+│   │   ├── auth.js               # JWT 生成与验证
+│   │   ├── validate.js           # 统一参数校验中间件（express-validator）
+│   │   └── logger.js             # Winston 日志中间件
 │   ├── routes/
-│   │   ├── games.js              # 游戏 CRUD + 搜索 API
-│   │   ├── upload.js             # 文件上传 + 解析入库
-│   │   └── admin.js              # 管理员登录 + 站点配置接口
+│   │   ├── games.js              # 游戏 CRUD + 搜索 API（写操作需鉴权）
+│   │   ├── upload.js             # 文件上传 + 解析入库（需鉴权）
+│   │   └── admin.js              # 管理员登录 + 站点配置 + 游戏管理 + 接口文档
+│   ├── logs/                     # 运行日志（git 忽略）
+│   │   └── .gitkeep
 │   ├── .env                      # 环境变量（不提交 git）
+│   ├── .env.example              # 环境变量模板
 │   ├── package.json
 │   └── server.js                 # Express 入口
 ├── frontend/                     # Vue3 前端
 │   ├── src/
 │   │   ├── api/
 │   │   │   ├── games.ts          # 游戏相关 Axios API 封装
-│   │   │   └── admin.ts          # 管理员相关 Axios API 封装
+│   │   │   └── admin.ts          # 管理员相关 Axios API 封装（含 token 拦截器）
 │   │   ├── assets/
 │   │   │   └── main.css          # 全局样式（桜主题）
 │   │   ├── components/
 │   │   │   ├── GameCard.vue      # 游戏卡片组件
 │   │   │   └── SearchBar.vue     # 搜索框 + 标签筛选
+│   │   ├── composables/
+│   │   │   └── useCodeMirror.ts  # CodeMirror 6 封装（主题/语言动态切换）
 │   │   ├── router/
 │   │   │   └── index.ts          # Vue Router（含动态 title + 权限守卫）
 │   │   ├── stores/
@@ -55,12 +62,13 @@ sakura-games-site/
 │   │   ├── views/
 │   │   │   ├── HomeView.vue      # 首页（游戏列表 + 搜索）
 │   │   │   ├── GameView.vue      # 游戏详情 + 运行页
-│   │   │   ├── EditorView.vue    # 游戏编辑器 + 实时预览
+│   │   │   ├── EditorView.vue    # 游戏编辑器 + 实时预览 + 暂存
 │   │   │   ├── LocalGamesView.vue# 本地游戏列表
 │   │   │   ├── AddGameView.vue   # 文件上传游戏页
 │   │   │   └── AdminView.vue     # 管理员登录 + 站点配置面板
 │   │   ├── App.vue
-│   │   └── main.ts
+│   │   ├── main.ts
+│   │   └── shims-vue.d.ts
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.ts
@@ -213,7 +221,7 @@ VITE ready in xxx ms
 | `/editor`   | 编辑器   | 本地编写游戏代码 + 实时预览，保存至浏览器本地（可被管理员关闭）  |
 | `/local`    | 本地游戏 | 管理编辑器保存的本地游戏，支持游玩/编辑/导出/删除                |
 | `/add`      | 上传游戏 | 上传 `.html` / `.vue` / `.ts` 文件，解析后入库（可被管理员关闭） |
-| `/admin`    | 管理面板 | 管理员登录 + 控制编辑器/上传功能开关                             |
+| `/admin`    | 管理面板 | 管理员登录 + 控制编辑器/上传功能开关 + 游戏管理 + 接口文档       |
 
 ---
 
@@ -224,34 +232,41 @@ VITE ready in xxx ms
 http://localhost:8802/api
 ```
 
+> 登录管理后台后，点击「📋 接口文档」Tab 可查看完整的交互式文档（方法色标 + 参数说明 + 鉴权状态）。
+
 ### 游戏接口
 
-| 方法   | 路径              | 说明                        |
-| ------ | ----------------- | --------------------------- |
-| GET    | `/games`          | 游戏列表（支持分页 + 搜索） |
-| GET    | `/games/:id`      | 游戏详情（含 game_code）    |
-| POST   | `/games`          | 新增游戏                    |
-| PUT    | `/games/:id`      | 更新游戏                    |
-| DELETE | `/games/:id`      | 下架游戏（软删除）          |
-| POST   | `/games/:id/play` | 记录游玩次数                |
-| GET    | `/health`         | 健康检查                    |
+| 方法   | 路径              | 鉴权  | 说明                        |
+| ------ | ----------------- | :---: | --------------------------- |
+| GET    | `/games`          |   —   | 游戏列表（支持分页 + 搜索） |
+| GET    | `/games/:id`      |   —   | 游戏详情（含 game_code）    |
+| POST   | `/games`          |   ✅   | 新增游戏                    |
+| PUT    | `/games/:id`      |   ✅   | 更新游戏                    |
+| DELETE | `/games/:id`      |   ✅   | 下架游戏（软删除）          |
+| POST   | `/games/:id/play` |   —   | 记录游玩次数                |
+| GET    | `/health`         |   —   | 健康检查                    |
 
 ### 上传接口
 
-| 方法 | 路径           | 说明                                |
-| ---- | -------------- | ----------------------------------- |
-| POST | `/upload/game` | 上传游戏文件（multipart/form-data） |
+| 方法 | 路径           | 鉴权  | 说明                                |
+| ---- | -------------- | :---: | ----------------------------------- |
+| POST | `/upload/game` |   ✅   | 上传游戏文件（multipart/form-data） |
 
 ### 管理员接口
 
-| 方法 | 路径              | 说明                       |
-| ---- | ----------------- | -------------------------- |
-| POST | `/admin/login`    | 管理员登录，返回 token     |
-| POST | `/admin/logout`   | 登出（需要 token）         |
-| GET  | `/admin/settings` | 获取站点配置（公开）       |
-| PUT  | `/admin/settings` | 更新站点配置（需要 token） |
+| 方法   | 路径                      | 鉴权  | 说明                           |
+| ------ | ------------------------- | :---: | ------------------------------ |
+| POST   | `/admin/login`            |   —   | 管理员登录，返回 JWT token     |
+| POST   | `/admin/logout`           |   ✅   | 登出                           |
+| GET    | `/admin/settings`         |   —   | 获取站点配置（公开）           |
+| PUT    | `/admin/settings`         |   ✅   | 更新站点配置                   |
+| GET    | `/admin/games`            |   ✅   | 管理游戏列表（含下架，可搜索） |
+| PUT    | `/admin/games/:id`        |   ✅   | 编辑游戏基本信息               |
+| DELETE | `/admin/games/:id`        |   ✅   | 永久删除游戏                   |
+| PUT    | `/admin/games/:id/toggle` |   ✅   | 切换游戏上下架状态             |
+| GET    | `/admin/api-list`         |   ✅   | 查看全部接口列表               |
 
-> 需要 token 的接口须在请求头携带 `x-admin-token`。
+> 需要 token 的接口须在请求头携带 `x-admin-token: <token>`，token 在登录后获取，有效期 8 小时。
 
 #### 上传接口参数
 
@@ -332,12 +347,16 @@ http://localhost:8802/api
 - 📊 **游玩统计** — 自动记录每局游玩次数
 
 ### 游戏编辑器
-- ✏️ **实时预览** — 代码修改后 600ms 防抖自动刷新预览
-- 🔢 **行号显示** — 编辑器左侧同步行号
-- 📐 **布局切换** — 分栏 / 仅编辑 / 仅预览 三种模式
+- ✏️ **CodeMirror 6** — 语法高亮（HTML / JS / CSS）、行号、括号匹配、代码折叠
+- ↩ **撤销 / 重做** — 完整历史记录，支持 `Ctrl+Z` / `Ctrl+Y`
+- 🎨 **主题切换** — 暗色（One Dark）/ 亮色两套主题
+- 🌐 **语言切换** — HTML / JavaScript / CSS 高亮动态切换
+- 👁 **实时预览** — 代码修改后 600ms 防抖自动刷新预览
+- 📐 **布局切换** — 分栏 / 仅编辑 / 仅预览 三种模式，支持拖拽调整比例
 - ⛶ **全屏预览** — 新窗口全屏预览游戏效果
 - 📋 **代码模板** — 内置空白 HTML 和 Canvas 两种模板
-- 💾 **本地保存** — 游戏数据持久化至 localStorage
+- 📦 **编辑器暂存** — 3 秒无操作自动写入 localStorage，下次打开可一键恢复草稿
+- 💾 **本地保存** — 游戏数据持久化至 localStorage（`Ctrl+S` 快捷键）
 
 ### 本地游戏
 - 📋 **列表管理** — 查看所有本地保存的游戏
@@ -353,15 +372,39 @@ http://localhost:8802/api
 - ✅ **表单验证** — 必填项校验 + 错误提示
 
 ### 管理员模块
-- 🔐 **密码登录** — Token 鉴权，登录状态持久化至 localStorage
+- 🔐 **JWT 登录** — Token 鉴权，有效期 8 小时，登录状态持久化至 localStorage
+- 🔒 **登录限流** — 60 秒内最多 10 次，防暴力破解
 - 🎛 **功能开关** — 实时控制编辑器、上传功能的启用/禁用
+- 🎮 **游戏管理** — 搜索、行内编辑、上下架切换、永久删除、分页浏览
+- 📋 **接口文档** — 内置 API 文档面板，方法色标 + 参数说明 + 鉴权状态一览
 - 👁 **状态预览** — 面板内实时显示各功能当前运行状态
 - 🚫 **路由守卫** — 被关闭的功能页面自动重定向至首页，导航入口同步隐藏
+
+### 安全与稳定
+- 🛡 **权限保护** — 全部写操作（新增/修改/删除/上传）均需管理员 Token
+- ✅ **参数校验** — 统一 express-validator 校验，400 错误有明确字段提示
+- 📝 **Winston 日志** — 请求日志 + 慢查询（>1s）+ 管理员操作全量记录，落盘至 `backend/logs/`
+- 🔄 **数据库重连** — 连接失败自动重试最多 3 次，间隔递增
+- 🚦 **全局限流** — 300 次/分钟，防接口滥用
+- 💥 **异常兜底** — `uncaughtException` + `unhandledRejection` 全局捕获
 
 ### 通用
 - 📱 **响应式设计** — 适配桌面 / 平板 / 手机
 - 🌸 **桜主题** — 日式樱花风格视觉设计
 - 🔄 **动态页面 Title** — 进入游戏后 title 变为游戏名称
+
+---
+
+## 日志
+
+运行日志保存在 `backend/logs/`（已加入 `.gitignore`，目录由 `.gitkeep` 保持）：
+
+| 文件           | 内容                          |
+| -------------- | ----------------------------- |
+| `combined.log` | 所有请求日志 + 管理员操作记录 |
+| `error.log`    | 仅错误级别日志                |
+
+单个日志文件上限 **5MB**，自动滚动，最多保留 **5** 份。
 
 ---
 
@@ -378,6 +421,7 @@ http://localhost:8802/api
 | 管理员登录提示密码错误         | `.env` 未读取到 | 检查 `.env` 是否存在，`injecting env (0)` 表示文件为空或路径错误 |
 | 管理员登录提示密码错误         | 密码混淆        | 登录密码是 `ADMIN_PASSWORD`，不是 `ADMIN_TOKEN_SECRET`           |
 | 功能开关保存后前端未生效       | 缓存未刷新      | 刷新页面，settings 会在启动时重新拉取                            |
+| 编辑器无法输入内容             | ref 绑定失败    | 确认 `useCodeMirror` 返回值已解构，模板中使用顶层变量名绑定 ref  |
 
 ---
 

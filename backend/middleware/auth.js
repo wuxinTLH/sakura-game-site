@@ -1,16 +1,17 @@
 // middleware/auth.js
-const SECRET = process.env.ADMIN_TOKEN_SECRET || 'sakura_secret_2026'
+const jwt = require('jsonwebtoken')
 
-// 简单 token：base64(password + secret + timestamp)
-function generateToken(password) {
-    const raw = `${password}:${SECRET}:admin`
-    return Buffer.from(raw).toString('base64')
+const SECRET = process.env.ADMIN_TOKEN_SECRET || 'sakura_secret_2026'
+const EXPIRES = '8h'   // token 8小时过期
+
+function generateToken() {
+    return jwt.sign({ role: 'admin' }, SECRET, { expiresIn: EXPIRES })
 }
 
 function verifyToken(token) {
     try {
-        const decoded = Buffer.from(token, 'base64').toString('utf-8')
-        return decoded.endsWith(`:${SECRET}:admin`)
+        const decoded = jwt.verify(token, SECRET)
+        return decoded.role === 'admin'
     } catch {
         return false
     }
@@ -19,7 +20,7 @@ function verifyToken(token) {
 function adminAuth(req, res, next) {
     const token = req.headers['x-admin-token']
     if (!token || !verifyToken(token)) {
-        return res.status(401).json({ success: false, message: '未授权，请先登录' })
+        return res.status(401).json({ success: false, message: '未授权，请重新登录' })
     }
     next()
 }

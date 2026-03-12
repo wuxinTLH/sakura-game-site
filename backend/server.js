@@ -2,7 +2,8 @@
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
-const morgan = require('morgan')
+const rateLimit = require('express-rate-limit')
+const { requestLogger, logger } = require('./middleware/logger')
 
 const gamesRouter = require('./routes/games')
 const uploadRouter = require('./routes/upload')
@@ -10,6 +11,24 @@ const adminRouter = require('./routes/admin')
 
 const app = express()
 const PORT = process.env.PORT || 8802
+
+// 登录限流
+const loginLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { success: false, message: '请求过于频繁，请稍后再试' },
+    standardHeaders: true,
+    legacyHeaders: false,
+})
+
+// 全局限流
+const globalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    message: { success: false, message: '请求过于频繁，请稍后再试' },
+    standardHeaders: true,
+    legacyHeaders: false,
+})
 
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:8801')
     .split(',').map(s => s.trim())
@@ -23,29 +42,52 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-token'],
 }))
 
-// ⚠️ body-parser 必须在所有路由之前
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
-app.use(morgan('dev'))
+app.use(globalLimiter)
+app.use(requestLogger)    // Winston 请求日志
 
-// 路由
+// 把 logger 挂到 req 上，方便路由内使用 req.log
+app.use((req, _res, next) => {
+    req.log = logger
+    next()
+})
+
 app.use('/api/games', gamesRouter)
 app.use('/api/upload', uploadRouter)
+app.use('/api/admin/login', loginLimiter)
 app.use('/api/admin', adminRouter)
 
 app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() })
 })
 
+// 404
 app.use((_req, res) => {
     res.status(404).json({ success: false, message: 'Not Found' })
 })
 
-app.use((err, _req, res, _next) => {
-    console.error('[GLOBAL ERROR]', err)
-    res.status(500).json({ success: false, message: err.message || '服务器内部错误' })
+// 全局错误处理
+app.use((err, req, res, _next) => {
+    logger.error('Unhandled error', {
+        message: err.message,
+        stack: err.stack,
+        url: req.originalUrl,
+        method: req.method,
+    })
+    res.status(500).json({ success: false, message: '服务器内部错误' })
+})
+
+// 未捕获异常兜底
+process.on('uncaughtException', err => {
+    logger.error('uncaughtException', { message: err.message, stack: err.stack })
+    process.exit(1)
+})
+process.on('unhandledRejection', (reason) => {
+    logger.error('unhandledRejection', { reason: String(reason) })
 })
 
 app.listen(PORT, () => {
+    logger.info(`桜游戏屋 API 运行在 http://localhost:${PORT}`)
     console.log(`🌸  桜游戏屋 API 运行在 http://localhost:${PORT}`)
 })

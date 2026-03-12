@@ -11,7 +11,7 @@ node_modules/
 dist/
 dist-ssr/
 build/
-
+``
 # 环境变量（含敏感信息，绝不提交）
 .env
 .env.local
@@ -47,6 +47,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+backend/logs/
+!backend/logs/.gitkeep
 
 # 运行时
 pids/
@@ -57,3 +59,22 @@ pids/
 # 测试覆盖率
 coverage/
 .nyc_output/
+
+package-lock.json
+**/package-lock.json
+**/yarn.lock
+**/yarn.lock
+**/pnpm-lock.yaml
+**/package-lock.json
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/logs/
+**/pids/
+**/*.log
+**/*.pid
+**/*.seed
+**/*.pid.lock
+**/*.suo
+**/*.ntvs*
