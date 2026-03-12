@@ -1,162 +1,226 @@
-// routes/games.js
+// backend/routes/games.js
 const express = require('express')
-const { body, param, query } = require('express-validator')
-const { validate } = require('../middleware/validate')
-const { adminAuth } = require('../middleware/auth')
-const { adminLog } = require('../middleware/logger')
-const db = require('../config/database')
+const { body, query, param, validationResult } = require('express-validator')
 const router = express.Router()
+const db = require('../config/database')
+const { adminAuth } = require('../middleware/auth')
 
-// ── GET /api/games ────────────────────────────────────────────────
+// ── 参数校验失败统一处理 ─────────────────────────────────────────
+function validate(req, res, next) {
+    const errors = validationResult(req)
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() })
+    }
+    next()
+}
+
+// ── 允许的排序字段白名单（防 SQL 注入） ──────────────────────────
+const SORT_MAP = {
+    newest: 'g.created_at DESC',
+    hottest: 'g.play_count DESC',
+    order: 'g.sort_order DESC, g.created_at DESC',
+}
+
+// ─────────────────────────────────────────────────────────────────
+// GET /api/games — 游戏列表（分页 + 全文搜索 + 标签 + 排序）
+// ─────────────────────────────────────────────────────────────────
 router.get('/', [
-    query('page').optional().isInt({ min: 1 }).withMessage('page 必须为正整数'),
-    query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('limit 范围 1~100'),
+    query('page').optional().isInt({ min: 1 }).withMessage('page 必须是正整数'),
+    query('limit').optional().isInt({ min: 1, max: 50 }).withMessage('limit 范围 1~50'),
+    query('sort').optional().isIn(Object.keys(SORT_MAP)).withMessage('sort 值不合法'),
     validate,
 ], async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1
-        const limit = parseInt(req.query.limit) || 12
+        const page = parseInt(req.query.page || '1', 10)
+        const limit = parseInt(req.query.limit || '12', 10)
         const offset = (page - 1) * limit
-        const search = req.query.search?.trim() || ''
-        const tags = req.query.tags?.trim() || ''
+        const search = (req.query.search || '').trim()
+        const tags = (req.query.tags || '').trim()
+        const sort = SORT_MAP[req.query.sort] || SORT_MAP.order
 
-        let where = 'WHERE is_active = 1'
+        const conditions = ['g.is_active = 1']
         const params = []
 
         if (search) {
-            where += ' AND MATCH(name, description, tags) AGAINST(? IN BOOLEAN MODE)'
-            params.push(`${search}*`)
+            conditions.push('MATCH(g.name, g.description, g.tags) AGAINST(? IN BOOLEAN MODE)')
+            params.push(`*${search}*`)
         }
         if (tags) {
-            where += ' AND FIND_IN_SET(?, tags)'
+            conditions.push('FIND_IN_SET(?, g.tags)')
             params.push(tags)
         }
 
-        const [[{ total }]] = await db.execute(
-            `SELECT COUNT(*) AS total FROM s_g_games ${where}`, params
-        )
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+
         const [rows] = await db.execute(
-            `SELECT id, name, description, image_url, game_type, tags,
-              author, play_count, sort_order, created_at
-       FROM s_g_games ${where}
-       ORDER BY sort_order DESC, created_at DESC
+            `SELECT g.id, g.name, g.description, g.image_url, g.game_type,
+              g.tags, g.author, g.play_count, g.sort_order, g.created_at
+       FROM s_g_games g
+       ${where}
+       ORDER BY ${sort}
        LIMIT ${limit} OFFSET ${offset}`,
             params
         )
+
+        const [[{ total }]] = await db.execute(
+            `SELECT COUNT(*) AS total FROM s_g_games g ${where}`,
+            params
+        )
+
         res.json({
             success: true,
-            data: { list: rows, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
+            data: {
+                list: rows,
+                pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+            },
         })
     } catch (err) {
-        req.log.error('GET /games failed', { err: err.message })
+        req.log.error('GET /games 失败', { message: err.message })
         res.status(500).json({ success: false, message: '服务器错误' })
     }
 })
 
-// ── GET /api/games/:id ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// GET /api/games/:id — 游戏详情（含 game_code）
+// ─────────────────────────────────────────────────────────────────
 router.get('/:id', [
-    param('id').isInt({ min: 1 }).withMessage('id 必须为正整数'),
+    param('id').isInt({ min: 1 }).withMessage('id 必须是正整数'),
     validate,
 ], async (req, res) => {
     try {
-        const [[game]] = await db.execute(
-            'SELECT * FROM s_g_games WHERE id = ? AND is_active = 1', [req.params.id]
+        const [rows] = await db.execute(
+            'SELECT * FROM s_g_games WHERE id = ? AND is_active = 1',
+            [req.params.id]
         )
-        if (!game) return res.status(404).json({ success: false, message: '游戏不存在或已下架' })
-        res.json({ success: true, data: game })
+        if (!rows.length) {
+            return res.status(404).json({ success: false, message: '游戏不存在' })
+        }
+        res.json({ success: true, data: rows[0] })
     } catch (err) {
-        req.log.error('GET /games/:id failed', { err: err.message })
+        req.log.error('GET /games/:id 失败', { message: err.message })
         res.status(500).json({ success: false, message: '服务器错误' })
     }
 })
 
-// ── POST /api/games  ⚠️ 需要管理员 token ─────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// POST /api/games — 新增游戏（需鉴权）
+// ─────────────────────────────────────────────────────────────────
 router.post('/', adminAuth, [
-    body('name').trim().notEmpty().withMessage('游戏名称不能为空').isLength({ max: 255 }).withMessage('名称不超过 255 字'),
+    body('name').trim().notEmpty().withMessage('游戏名称不能为空')
+        .isLength({ max: 255 }).withMessage('名称最长 255 字符'),
     body('game_code').notEmpty().withMessage('游戏代码不能为空'),
-    body('game_type').optional().isIn(['html', 'canvas']).withMessage('game_type 只能为 html 或 canvas'),
-    body('sort_order').optional().isInt({ min: 0 }).withMessage('sort_order 必须为非负整数'),
+    body('game_type').optional().isIn(['html', 'canvas']).withMessage('game_type 值不合法'),
+    body('description').optional().isLength({ max: 2000 }).withMessage('介绍最长 2000 字符'),
+    body('tags').optional().isLength({ max: 500 }).withMessage('标签最长 500 字符'),
+    body('author').optional().isLength({ max: 100 }).withMessage('作者最长 100 字符'),
+    body('sort_order').optional().isInt({ min: 0 }).withMessage('sort_order 必须是非负整数'),
     validate,
 ], async (req, res) => {
     try {
-        const { name, description = '', image_url = '', game_code, game_type = 'html',
-            tags = '', author = '匿名', sort_order = 0 } = req.body
+        const {
+            name, description = '', image_url = '',
+            game_code, game_type = 'html',
+            tags = '', author = '', sort_order = 0,
+        } = req.body
 
         const [result] = await db.execute(
-            `INSERT INTO s_g_games (name, description, image_url, game_code, game_type, tags, author, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [name, description, image_url, game_code, game_type, tags, author, parseInt(sort_order)]
+            `INSERT INTO s_g_games
+         (name, description, image_url, game_code, game_type,
+          tags, author, sort_order, is_active, play_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NOW(), NOW())`,
+            [name, description, image_url, game_code, game_type, tags, author, sort_order]
         )
-        adminLog('新增游戏', { id: result.insertId, name })
-        res.status(201).json({ success: true, data: { id: result.insertId }, message: '新增成功' })
+
+        req.log.info('新增游戏', { id: result.insertId, name })
+        res.status(201).json({
+            success: true,
+            data: { id: result.insertId },
+            message: '游戏创建成功',
+        })
     } catch (err) {
-        req.log.error('POST /games failed', { err: err.message })
+        req.log.error('POST /games 失败', { message: err.message })
         res.status(500).json({ success: false, message: '服务器错误' })
     }
 })
 
-// ── PUT /api/games/:id  ⚠️ 需要管理员 token ──────────────────────
+// ─────────────────────────────────────────────────────────────────
+// PUT /api/games/:id — 更新游戏（需鉴权）
+// ─────────────────────────────────────────────────────────────────
 router.put('/:id', adminAuth, [
-    param('id').isInt({ min: 1 }).withMessage('id 必须为正整数'),
-    body('name').optional().trim().notEmpty().withMessage('游戏名称不能为空').isLength({ max: 255 }),
-    body('sort_order').optional().isInt({ min: 0 }).withMessage('sort_order 必须为非负整数'),
+    param('id').isInt({ min: 1 }).withMessage('id 必须是正整数'),
+    body('name').optional().trim().notEmpty().withMessage('名称不能为空')
+        .isLength({ max: 255 }).withMessage('名称最长 255 字符'),
+    body('game_type').optional().isIn(['html', 'canvas']).withMessage('game_type 值不合法'),
+    body('description').optional().isLength({ max: 2000 }).withMessage('介绍最长 2000 字符'),
+    body('tags').optional().isLength({ max: 500 }).withMessage('标签最长 500 字符'),
+    body('author').optional().isLength({ max: 100 }).withMessage('作者最长 100 字符'),
+    body('sort_order').optional().isInt({ min: 0 }).withMessage('sort_order 必须是非负整数'),
     validate,
 ], async (req, res) => {
     try {
-        const id = parseInt(req.params.id)
         const allowed = ['name', 'description', 'image_url', 'game_code',
             'game_type', 'tags', 'author', 'sort_order', 'is_active']
         const fields = []
         const values = []
-        allowed.forEach(f => {
-            if (req.body[f] !== undefined) {
-                fields.push(`${f} = ?`)
-                values.push(req.body[f])
+
+        for (const key of allowed) {
+            if (req.body[key] !== undefined) {
+                fields.push(`${key} = ?`)
+                values.push(req.body[key])
             }
-        })
+        }
+
         if (!fields.length) {
             return res.status(400).json({ success: false, message: '没有可更新的字段' })
         }
-        values.push(id)
+
+        fields.push('updated_at = NOW()')
+        values.push(req.params.id)
+
         const [result] = await db.execute(
-            `UPDATE s_g_games SET ${fields.join(', ')} WHERE id = ?`, values
+            `UPDATE s_g_games SET ${fields.join(', ')} WHERE id = ?`,
+            values
         )
-        if (result.affectedRows === 0) {
+
+        if (!result.affectedRows) {
             return res.status(404).json({ success: false, message: '游戏不存在' })
         }
-        adminLog('更新游戏', { id, fields: fields.map(f => f.split(' ')[0]) })
+
         res.json({ success: true, message: '更新成功' })
     } catch (err) {
-        req.log.error('PUT /games/:id failed', { err: err.message })
+        req.log.error('PUT /games/:id 失败', { message: err.message })
         res.status(500).json({ success: false, message: '服务器错误' })
     }
 })
 
-// ── DELETE /api/games/:id  ⚠️ 需要管理员 token ───────────────────
+// ─────────────────────────────────────────────────────────────────
+// DELETE /api/games/:id — 下架游戏（软删除，需鉴权）
+// ─────────────────────────────────────────────────────────────────
 router.delete('/:id', adminAuth, [
-    param('id').isInt({ min: 1 }).withMessage('id 必须为正整数'),
+    param('id').isInt({ min: 1 }).withMessage('id 必须是正整数'),
     validate,
 ], async (req, res) => {
     try {
-        const id = parseInt(req.params.id)
-        // 软删除：is_active = 0
         const [result] = await db.execute(
-            'UPDATE s_g_games SET is_active = 0 WHERE id = ?', [id]
+            'UPDATE s_g_games SET is_active = 0, updated_at = NOW() WHERE id = ?',
+            [req.params.id]
         )
-        if (result.affectedRows === 0) {
+        if (!result.affectedRows) {
             return res.status(404).json({ success: false, message: '游戏不存在' })
         }
-        adminLog('下架游戏(软删除)', { id })
-        res.json({ success: true, message: '已下架' })
+        req.log.info('游戏已下架', { id: req.params.id })
+        res.json({ success: true, message: '游戏已下架' })
     } catch (err) {
-        req.log.error('DELETE /games/:id failed', { err: err.message })
+        req.log.error('DELETE /games/:id 失败', { message: err.message })
         res.status(500).json({ success: false, message: '服务器错误' })
     }
 })
 
-// ── POST /api/games/:id/play ──────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// POST /api/games/:id/play — 记录游玩次数（公开）
+// ─────────────────────────────────────────────────────────────────
 router.post('/:id/play', [
-    param('id').isInt({ min: 1 }).withMessage('id 必须为正整数'),
+    param('id').isInt({ min: 1 }).withMessage('id 必须是正整数'),
     validate,
 ], async (req, res) => {
     try {
@@ -166,7 +230,7 @@ router.post('/:id/play', [
         )
         res.json({ success: true })
     } catch (err) {
-        req.log.error('POST /games/:id/play failed', { err: err.message })
+        req.log.error('POST /games/:id/play 失败', { message: err.message })
         res.status(500).json({ success: false, message: '服务器错误' })
     }
 })

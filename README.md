@@ -76,6 +76,7 @@ sakura-games-site/
 │   ├── init.sql                  # 数据库初始化 + 内置游戏（建库建表）
 │   ├── game.sql                  # 额外测试游戏数据
 │   └── settings.sql              # 站点配置表 + 管理员开关初始数据
+├── package.json                  # 根目录：一键启动前后端（concurrently）
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -145,15 +146,10 @@ source /path/to/sakura-games-site/database/settings.sql;
 
 > `settings.sql` 会创建 `s_g_settings` 站点配置表，并写入编辑器和上传功能的开关初始值（默认全部开启）。
 
-### 3. 配置并启动后端
+### 3. 配置后端环境变量
 
 ```bash
 cd backend
-
-# 安装依赖
-npm install
-
-# 复制环境变量模板
 cp .env.example .env
 ```
 
@@ -176,39 +172,56 @@ ADMIN_TOKEN_SECRET=自定义签名密钥
 
 > `ADMIN_PASSWORD` 是访问 `/admin` 管理面板的登录密码，`ADMIN_TOKEN_SECRET` 是 Token 签名密钥，两者均可自定义。
 
-启动后端：
+### 4. 安装所有依赖
+
+回到根目录，安装前后端依赖及根目录的 `concurrently`：
+
 ```bash
-# 开发模式（热重载）
-npm run dev
+# 回到根目录
+cd ..
 
-# 或生产模式
-npm start
-```
-
-看到以下输出说明后端正常：
-```
-🌸  桜游戏屋 API 运行在 http://localhost:8802
-✅  MySQL 连接成功
-```
-
-### 4. 配置并启动前端
-
-新开一个终端：
-```bash
-cd frontend
-
-# 安装依赖
+# 安装根目录依赖（concurrently）
 npm install
 
-# 开发模式启动
+# 安装前端依赖
+npm install --prefix frontend
+
+# 安装后端依赖
+npm install --prefix backend
+```
+
+### 5. 一键启动前后端
+
+```bash
+# 在根目录执行，同时启动前端（8801）和后端（8802）先使用npm install -D npx指令安装npx
 npm run dev
 ```
 
-看到以下输出后，访问 [http://localhost:8801](http://localhost:8801)：
+看到以下输出说明启动成功，访问 [http://localhost:8801](http://localhost:8801)：
 ```
-VITE ready in xxx ms
-➜  Local:   http://localhost:8801/
+[后端] 🌸  桜游戏屋 API 运行在 http://localhost:8802
+[后端] ✅  MySQL 连接成功
+[前端] VITE ready in xxx ms
+[前端] ➜  Local:   http://localhost:8801/
 ```
+
+按 `Ctrl+C` 同时关闭前后端。
+
+---
+
+### 单独启动（可选）
+
+如需单独调试，也可分别启动：
+
+```bash
+# 仅启动前端
+npm run dev:frontend
+
+# 仅启动后端
+npm run dev:backend
+```
+
+或进入各子目录分别执行 `npm run dev`。
 
 ---
 
@@ -410,18 +423,19 @@ http://localhost:8802/api
 
 ## 常见问题
 
-| 问题                           | 原因            | 解决                                                             |
-| ------------------------------ | --------------- | ---------------------------------------------------------------- |
-| `Cannot find module 'express'` | 未安装依赖      | `npm install`                                                    |
-| `Cannot find module 'multer'`  | 未安装 multer   | `npm install multer`                                             |
-| `MySQL 连接失败`               | 密码或库名错误  | 检查 `.env`                                                      |
-| `EADDRINUSE`                   | 端口被占用      | 修改 `.env` 中的端口号                                           |
-| 前端空白无内容                 | 后端未启动      | 先启动后端再刷新前端                                             |
-| 上传文件报 413                 | 文件超过限制    | 文件需小于 10MB                                                  |
-| 管理员登录提示密码错误         | `.env` 未读取到 | 检查 `.env` 是否存在，`injecting env (0)` 表示文件为空或路径错误 |
-| 管理员登录提示密码错误         | 密码混淆        | 登录密码是 `ADMIN_PASSWORD`，不是 `ADMIN_TOKEN_SECRET`           |
-| 功能开关保存后前端未生效       | 缓存未刷新      | 刷新页面，settings 会在启动时重新拉取                            |
-| 编辑器无法输入内容             | ref 绑定失败    | 确认 `useCodeMirror` 返回值已解构，模板中使用顶层变量名绑定 ref  |
+| 问题                                | 原因            | 解决                                                             |
+| ----------------------------------- | --------------- | ---------------------------------------------------------------- |
+| `Cannot find module 'express'`      | 未安装依赖      | `npm install`                                                    |
+| `Cannot find module 'multer'`       | 未安装 multer   | `npm install multer`                                             |
+| `MySQL 连接失败`                    | 密码或库名错误  | 检查 `.env`                                                      |
+| `EADDRINUSE`                        | 端口被占用      | 修改 `.env` 中的端口号                                           |
+| 前端空白无内容                      | 后端未启动      | 先启动后端再刷新前端                                             |
+| 上传文件报 413                      | 文件超过限制    | 文件需小于 10MB                                                  |
+| 管理员登录提示密码错误              | `.env` 未读取到 | 检查 `.env` 是否存在，`injecting env (0)` 表示文件为空或路径错误 |
+| 管理员登录提示密码错误              | 密码混淆        | 登录密码是 `ADMIN_PASSWORD`，不是 `ADMIN_TOKEN_SECRET`           |
+| 功能开关保存后前端未生效            | 缓存未刷新      | 刷新页面，settings 会在启动时重新拉取                            |
+| 编辑器无法输入内容                  | ref 绑定失败    | 确认 `useCodeMirror` 返回值已解构，模板中使用顶层变量名绑定 ref  |
+| `npm run dev` 报找不到 concurrently | 根目录依赖未装  | 在根目录执行 `npm install`                                       |
 
 ---
 

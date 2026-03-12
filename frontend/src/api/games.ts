@@ -49,3 +49,15 @@ export const uploadGame = (formData: FormData) =>
     http.post('/upload/game', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data)
+
+export const getGames = (params: {
+    page?: number
+    limit?: number
+    search?: string
+    tags?: string
+    sort?: 'newest' | 'hottest' | 'order'
+}) => http.get('/games', { params }).then(r => r.data)
+
+export const publishGame = (payload: {
+    name: string; description: string; tags: string; author: string; game_code: string
+}) => http.post('/games', payload).then(r => r.data)

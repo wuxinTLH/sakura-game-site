@@ -47,6 +47,8 @@ export const adminDeleteGame = (id: number) =>
 export const adminToggleGame = (id: number) =>
     http.put(`/games/${id}/toggle`).then(r => r.data)
 
-// ← 之前漏掉的
 export const getApiList = () =>
     http.get('/api-list').then(r => r.data)
+
+export const getAdminStats = () =>
+    http.get('/stats').then(r => r.data)

@@ -58,6 +58,10 @@
                         <button class="btn-delete" @click="confirmDelete(game)" title="删除">
                             🗑
                         </button>
+                        <button class="act-btn publish" @click="publishToOnline(game)"
+                            :disabled="publishing === game.id" title="发布到线上">
+                            {{ publishing === game.id ? '发布中…' : '🚀 发布' }}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -82,9 +86,16 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLocalGamesStore } from '@/stores/localGames'
 import type { LocalGame } from '@/stores/localGames'
+import { publishGame } from '@/api/games'
+import { useAdminStore } from '@/stores/admin'
+import { useToast } from '@/composables/useToast'
 
 const store = useLocalGamesStore()
 const router = useRouter()
+
+const adminStore = useAdminStore()
+const toast = useToast()
+const publishing = ref<string | null>(null)
 
 const playingGame = ref<LocalGame | null>(null)
 
@@ -105,6 +116,29 @@ function confirmDelete(game: LocalGame) {
 function formatDate(iso: string) {
     const d = new Date(iso)
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+async function publishToOnline(game: LocalGame) {
+    if (!adminStore.isLoggedIn) {
+        toast.warning('发布到线上需要管理员登录，请先前往 /admin 登录')
+        return
+    }
+    if (!confirm(`确认将「${game.name}」发布到线上游戏库？`)) return
+    publishing.value = game.id
+    try {
+        await publishGame({
+            name: game.name,
+            description: game.description,
+            tags: game.tags,
+            author: game.author,
+            game_code: game.code,
+        })
+        toast.success(`「${game.name}」已发布到线上！`)
+    } catch (e: any) {
+        toast.error('发布失败：' + e.message)
+    } finally {
+        publishing.value = null
+    }
 }
 </script>
 

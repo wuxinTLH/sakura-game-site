@@ -26,6 +26,28 @@ const upload = multer({
     },
 })
 
+const DANGER_PATTERNS = [
+    /<script[^>]+src\s*=/i,           // <script src="...">
+    /fetch\s*\(/,                      // fetch(
+    /XMLHttpRequest/,                  // XHR
+    /navigator\.sendBeacon/,           // sendBeacon
+    /import\s*\(/,                     // 动态 import
+    /document\.cookie/,                // 读取 cookie
+    /localStorage\s*\.\s*set/,        // 写 localStorage（防数据污染）
+    /window\.location\s*=/,           // 跳转劫持
+    /eval\s*\(/,                       // eval
+    /(https?:)?\/\/(?!localhost|127\.0\.0\.1)[^\s'"]+\.(js|css)/i, // 外链 JS/CSS
+]
+
+function scanSecurity(code, filename) {
+    const hits = DANGER_PATTERNS
+        .filter(p => p.test(code))
+        .map(p => p.toString())
+    if (hits.length) {
+        throw new Error(`文件 ${filename} 包含不允许的内容（外链/eval/数据外传），已拒绝上传`)
+    }
+}
+
 // ── 文件解析工具 ──────────────────────────────────────────────────
 function bufferToText(buffer) {
     return buffer.toString('utf-8')
@@ -131,6 +153,8 @@ router.post('/game',
 
             // 二进制 Buffer 解构为文本
             const rawText = bufferToText(req.file.buffer)
+            // 安全扫描
+            scanSecurity(rawText, req.file.originalname)
             const ext = req.file.originalname
                 .slice(req.file.originalname.lastIndexOf('.')).toLowerCase()
 

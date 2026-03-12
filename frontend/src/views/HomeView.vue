@@ -1,6 +1,6 @@
 <template>
     <div class="home-view">
-        <!-- ── Hero 区域 ────────────────────────────────────────────── -->
+        <!-- ── Hero 区域 ─────────────────────────────────────────────── -->
         <section class="hero">
             <div class="hero-inner">
                 <h1 class="hero-title">
@@ -8,15 +8,15 @@
                     发现有趣的小游戏
                 </h1>
                 <p class="hero-sub">精心收录的趣味游戏合集，随时随地开玩</p>
-                <!-- 搜索 -->
                 <SearchBar v-model="searchText" @search="onSearch" @tag="onTagSearch" class="hero-search" />
             </div>
         </section>
 
-        <!-- ── 主内容 ────────────────────────────────────────────────── -->
+        <!-- ── 主内容 ──────────────────────────────────────────────────── -->
         <div class="content-wrap">
-            <!-- 统计 + 排序 -->
-            <div class="list-header" v-if="!store.loading || store.list.length">
+
+            <!-- 统计 + 排序工具栏 -->
+            <div class="list-toolbar" v-if="!store.loading || store.list.length">
                 <p class="list-total">
                     <template v-if="store.pagination.total > 0">
                         共 <strong>{{ store.pagination.total }}</strong> 款游戏
@@ -28,6 +28,11 @@
                         </template>
                     </template>
                 </p>
+                <select class="sel-sort" v-model="sortBy" @change="onSortChange" title="排序方式">
+                    <option value="order">默认排序</option>
+                    <option value="newest">最新上架</option>
+                    <option value="hottest">最多游玩</option>
+                </select>
             </div>
 
             <!-- 错误提示 -->
@@ -65,24 +70,35 @@
                 </div>
             </div>
 
-            <!-- 加载更多 -->
-            <div class="load-more-wrap" v-if="store.hasMore">
-                <button class="btn-load-more" :disabled="store.loading" @click="store.loadMore()">
-                    <span v-if="store.loading">🌸 加载中…</span>
-                    <span v-else>加载更多</span>
-                </button>
+            <!-- ── 页码分页 ───────────────────────────────────────────── -->
+            <div class="pagination" v-if="store.pagination.pages > 1">
+                <!-- 上一页 -->
+                <button class="page-btn" :disabled="store.pagination.page <= 1"
+                    @click="goPage(store.pagination.page - 1)" title="上一页">‹</button>
+
+                <!-- 页码列表 -->
+                <template v-for="p in pageRange" :key="String(p)">
+                    <span v-if="p === '…'" class="page-ellipsis">…</span>
+                    <button v-else class="page-btn" :class="{ active: p === store.pagination.page }"
+                        @click="goPage(Number(p))">{{ p }}</button>
+                </template>
+
+                <!-- 下一页 -->
+                <button class="page-btn" :disabled="store.pagination.page >= store.pagination.pages"
+                    @click="goPage(store.pagination.page + 1)" title="下一页">›</button>
             </div>
 
-            <!-- 全部加载完 -->
-            <p class="list-end" v-if="!store.hasMore && store.list.length > 0">
+            <!-- 全部加载完（单页时显示） -->
+            <p class="list-end" v-if="store.pagination.pages <= 1 && store.list.length > 0 && !store.loading">
                 ── 已加载全部 {{ store.pagination.total }} 款游戏 ──
             </p>
+
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useGamesStore } from '@/stores/games'
 import GameCard from '@/components/GameCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
@@ -91,24 +107,22 @@ const store = useGamesStore()
 const searchText = ref('')
 const currentSearch = ref('')
 const currentTag = ref('')
+const sortBy = ref<'order' | 'newest' | 'hottest'>('order')
 
-let searchTimer: ReturnType<typeof setTimeout>
-
+// ── 初始加载 ──────────────────────────────────────────────────────
 onMounted(() => {
-    console.log('HomeView mounted，开始加载游戏列表')
-    store.load({ search: '', page: 1 }).then(() => {
-        console.log('加载完成，list长度：', store.list.length)
-        console.log('store数据：', store.list)
-        console.log('error：', store.error)
-    })
+    store.load({ search: '', page: 1, sort: sortBy.value })
 })
+
+// ── 搜索 / 标签 ───────────────────────────────────────────────────
+let searchTimer: ReturnType<typeof setTimeout>
 
 function onSearch(val: string) {
     currentSearch.value = val
     currentTag.value = ''
     clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
-        store.load({ search: val, tags: '', page: 1 })
+        store.load({ search: val, tags: '', page: 1, sort: sortBy.value })
     }, 50)
 }
 
@@ -116,19 +130,47 @@ function onTagSearch(tag: string) {
     currentTag.value = tag
     currentSearch.value = ''
     searchText.value = ''
-    store.load({ search: '', tags: tag, page: 1 })
+    store.load({ search: '', tags: tag, page: 1, sort: sortBy.value })
 }
 
 function clearSearch() {
     searchText.value = ''
     currentSearch.value = ''
     currentTag.value = ''
-    store.load({ search: '', tags: '', page: 1 })
+    store.load({ search: '', tags: '', page: 1, sort: sortBy.value })
 }
 
 function reload() {
-    store.load({ search: currentSearch.value, tags: currentTag.value, page: 1 })
+    store.load({ search: currentSearch.value, tags: currentTag.value, page: 1, sort: sortBy.value })
 }
+
+// ── 排序切换 ──────────────────────────────────────────────────────
+function onSortChange() {
+    store.load({ search: currentSearch.value, tags: currentTag.value, page: 1, sort: sortBy.value })
+}
+
+// ── 分页跳转 ──────────────────────────────────────────────────────
+function goPage(p: number) {
+    store.load({ search: currentSearch.value, tags: currentTag.value, page: p, sort: sortBy.value })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// ── 页码范围计算（最多显示 7 个，超出省略） ───────────────────────
+const pageRange = computed<(number | '…')[]>(() => {
+    const total = store.pagination.pages
+    const cur = store.pagination.page
+    if (!total || total <= 1) return []
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+
+    const pages: (number | '…')[] = [1]
+    if (cur > 3) pages.push('…')
+    const from = Math.max(2, cur - 1)
+    const to = Math.min(total - 1, cur + 1)
+    for (let p = from; p <= to; p++) pages.push(p)
+    if (cur < total - 2) pages.push('…')
+    pages.push(total)
+    return pages
+})
 </script>
 
 <style scoped>
@@ -181,8 +223,14 @@ function reload() {
     padding: 28px 20px 60px;
 }
 
-.list-header {
+/* ── 工具栏（统计 + 排序） ──────────────────────────────────────── */
+.list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .list-total {
@@ -197,6 +245,24 @@ function reload() {
 .list-total em {
     color: var(--ink-600);
     font-style: normal;
+}
+
+.sel-sort {
+    padding: 7px 14px;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-600);
+    font-size: 0.84rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color var(--transition);
+    flex-shrink: 0;
+}
+
+.sel-sort:hover,
+.sel-sort:focus {
+    border-color: var(--sakura-300);
 }
 
 /* ── 游戏列表 ────────────────────────────────────────────────────── */
@@ -339,33 +405,59 @@ function reload() {
     border-radius: 12px;
 }
 
-/* ── 加载更多 ─────────────────────────────────────────────────────── */
-.load-more-wrap {
-    text-align: center;
-    margin-top: 32px;
+/* ── 页码分页 ─────────────────────────────────────────────────────── */
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 36px;
+    flex-wrap: wrap;
 }
 
-.btn-load-more {
-    padding: 12px 40px;
-    border-radius: 50px;
+.page-btn {
+    min-width: 36px;
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
     background: var(--surface);
-    border: 2px solid var(--sakura-300);
-    color: var(--sakura-600);
-    font-size: 0.95rem;
-    font-weight: 600;
+    border: 1.5px solid var(--border);
+    color: var(--ink-600);
     transition: all var(--transition);
+    cursor: pointer;
+    line-height: 1;
 }
 
-.btn-load-more:hover:not(:disabled) {
+.page-btn:hover:not(:disabled) {
+    border-color: var(--sakura-300);
+    color: var(--sakura-500);
     background: var(--sakura-100);
-    border-color: var(--sakura-500);
 }
 
-.btn-load-more:disabled {
-    opacity: 0.6;
+.page-btn.active {
+    background: var(--sakura-500);
+    border-color: var(--sakura-500);
+    color: #fff;
+    font-weight: 700;
+}
+
+.page-btn:disabled {
+    opacity: 0.35;
     cursor: not-allowed;
 }
 
+.page-ellipsis {
+    min-width: 28px;
+    text-align: center;
+    color: var(--ink-300);
+    font-size: 0.85rem;
+    line-height: 36px;
+    user-select: none;
+}
+
+/* ── 全部加载完 ───────────────────────────────────────────────────── */
 .list-end {
     text-align: center;
     margin-top: 32px;

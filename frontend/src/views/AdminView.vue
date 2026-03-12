@@ -195,6 +195,61 @@
                     </div>
                 </template>
 
+                <!-- Tab: 数据统计 -->
+                <template v-if="activeTab === 'stats'">
+                    <div class="stats-panel" v-if="store.stats">
+                        <!-- 数字卡片 -->
+                        <div class="stats-cards">
+                            <div class="stat-card">
+                                <div class="stat-num">{{ store.stats.total }}</div>
+                                <div class="stat-label">游戏总数</div>
+                            </div>
+                            <div class="stat-card active">
+                                <div class="stat-num">{{ store.stats.active }}</div>
+                                <div class="stat-label">已上架</div>
+                            </div>
+                            <div class="stat-card inactive">
+                                <div class="stat-num">{{ store.stats.inactive }}</div>
+                                <div class="stat-label">已下架</div>
+                            </div>
+                            <div class="stat-card plays">
+                                <div class="stat-num">{{ store.stats.totalPlays.toLocaleString() }}</div>
+                                <div class="stat-label">总游玩次数</div>
+                            </div>
+                        </div>
+
+                        <!-- 最热游戏 -->
+                        <div class="stats-section">
+                            <h4 class="stats-section-title">🔥 最热游戏 TOP 5</h4>
+                            <div class="stats-rank">
+                                <div class="rank-item" v-for="(g, i) in store.stats.topGames" :key="g.id">
+                                    <span class="rank-no" :class="i < 3 ? `top${i + 1}` : ''">{{ i + 1 }}</span>
+                                    <span class="rank-name">{{ g.name }}</span>
+                                    <span class="rank-author">{{ g.author }}</span>
+                                    <span class="rank-count">{{ g.play_count.toLocaleString() }} 次</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 最新入库 -->
+                        <div class="stats-section">
+                            <h4 class="stats-section-title">🆕 最新入库</h4>
+                            <div class="stats-rank">
+                                <div class="rank-item" v-for="g in store.stats.recentGames" :key="g.id">
+                                    <span class="rank-name">{{ g.name }}</span>
+                                    <span class="rank-author">{{ g.author }}</span>
+                                    <span class="rank-date">{{ new Date(g.created_at).toLocaleDateString('zh-CN')
+                                    }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stats-loading" v-else>
+                        <span>🌸</span> 加载中…
+                    </div>
+                </template>
+
                 <!-- Tab：接口文档 ─────────────────────────────────────── -->
                 <template v-if="activeTab === 'api'">
                     <div class="api-panel">
@@ -300,13 +355,16 @@ const store = useAdminStore()
 const tabs = [
     { value: 'settings' as const, label: '🎛 功能开关' },
     { value: 'games' as const, label: '🎮 游戏管理' },
+    { value: 'stats' as const, label: '📊 数据统计' },
     { value: 'api' as const, label: '📋 接口文档' },
 ]
-const activeTab = ref<'settings' | 'games' | 'api'>('settings')
+type TabValue = 'settings' | 'games' | 'stats' | 'api'
+const activeTab = ref<TabValue>('settings')
 
-function switchTab(tab: 'settings' | 'games' | 'api') {
+function switchTab(tab: TabValue) {
     activeTab.value = tab
     if (tab === 'games' && !store.games.length) store.loadGames()
+    if (tab === 'stats') store.loadStats()
     if (tab === 'api') loadApiList()
 }
 
@@ -1500,6 +1558,159 @@ async function loadApiList() {
 
     .api-header-right {
         align-items: flex-start;
+    }
+}
+
+/* ── 数据统计 ─────────────────────────────────────────────────── */
+.stats-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.stats-loading {
+    text-align: center;
+    padding: 60px;
+    color: var(--ink-400);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.stats-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 16px;
+    text-align: center;
+    box-shadow: var(--shadow);
+    transition: transform 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.stat-num {
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--ink-900);
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+    margin-top: 6px;
+}
+
+.stat-card.active .stat-num {
+    color: #2e7d4f;
+}
+
+.stat-card.inactive .stat-num {
+    color: #c0392b;
+}
+
+.stat-card.plays .stat-num {
+    color: var(--sakura-500);
+}
+
+.stats-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+}
+
+.stats-section-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--ink-900);
+    margin-bottom: 14px;
+}
+
+.stats-rank {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.rank-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+
+.rank-no {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--ink-100);
+    color: var(--ink-400);
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.rank-no.top1 {
+    background: #ffd700;
+    color: #7a5900;
+}
+
+.rank-no.top2 {
+    background: #c0c0c0;
+    color: #505050;
+}
+
+.rank-no.top3 {
+    background: #cd7f32;
+    color: #5a2a00;
+}
+
+.rank-name {
+    flex: 1;
+    font-weight: 600;
+    color: var(--ink-900);
+}
+
+.rank-author {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+}
+
+.rank-count {
+    font-size: 0.82rem;
+    color: var(--sakura-500);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.rank-date {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .stats-cards {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 </style>

@@ -34,7 +34,10 @@
     </header>
 
     <main class="site-main">
-      <router-view />
+      <!-- 错误边界：捕获子组件崩溃，防止整页白屏 -->
+      <ErrorBoundary>
+        <router-view />
+      </ErrorBoundary>
     </main>
 
     <footer class="site-footer">
@@ -42,7 +45,6 @@
       <p class="footer-powered">
         Powered by <span class="powered-name">SakuraMikku</span>
         &nbsp;·&nbsp;
-
         <a href="https://github.com/wuxinTLH" target="_blank" rel="noopener noreferrer" class="footer-github">
           <svg class="github-icon" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482
@@ -58,11 +60,16 @@
         </a>
       </p>
     </footer>
+
+    <!-- Toast 全局通知：放在最外层保证层级最高 -->
+    <ToastContainer />
   </div>
 </template>
 
 <script setup lang="ts">
 import { useAdminStore } from '@/stores/admin'
+import ToastContainer from '@/components/ToastContainer.vue'
+import ErrorBoundary from '@/components/ErrorBoundary.vue'
 
 const adminStore = useAdminStore()
 </script>

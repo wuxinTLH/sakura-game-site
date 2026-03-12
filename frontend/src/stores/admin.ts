@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
     adminLogin, adminLogout, getSettings, updateSettings,
-    adminGetGames, adminUpdateGame, adminDeleteGame, adminToggleGame
+    adminGetGames, adminUpdateGame, adminDeleteGame, adminToggleGame, getAdminStats
 } from '@/api/admin'
 
 export interface SiteSettings {
@@ -23,8 +23,20 @@ export interface AdminGame {
     created_at: string
     updated_at: string
 }
+interface AdminStats {
+    total: number
+    active: number
+    inactive: number
+    totalPlays: number
+    topGames: { id: number; name: string; play_count: number; author: string }[]
+    recentGames: { id: number; name: string; created_at: string; author: string }[]
+}
+const stats = ref<AdminStats | null>(null)
 
-
+async function loadStats() {
+    const res = await getAdminStats()
+    stats.value = res.data
+}
 
 export const useAdminStore = defineStore('admin', () => {
     const token = ref<string | null>(localStorage.getItem('admin_token'))
@@ -104,6 +116,7 @@ export const useAdminStore = defineStore('admin', () => {
         token, settings, loading, games, gamesPagination, isLoggedIn,
         loadSettings, login, logout, saveSettings,
         loadGames, updateGame, deleteGame, toggleGame,
+        stats, loadStats,
     }
 
 })

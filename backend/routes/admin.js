@@ -1,7 +1,7 @@
 // routes/admin.js
 const express = require('express')
 const db = require('../config/database')
-const { generateToken, adminAuth } = require('../middleware/auth')
+const { generateToken, verifyPassword, revokeToken, adminAuth } = require('../middleware/auth')
 const router = express.Router()
 const { body, param, query } = require('express-validator')
 const { validate } = require('../middleware/validate')
@@ -22,6 +22,7 @@ router.post('/login', (req, res) => {
 
 // ── POST /api/admin/logout ────────────────────────────────────────
 router.post('/logout', adminAuth, (req, res) => {
+    revokeToken(req.adminToken)   // 加入黑名单
     adminLog('管理员登出', { ip: req.ip })
     res.json({ success: true, message: '已登出' })
 })
@@ -208,9 +209,10 @@ router.put('/games/:id/toggle', adminAuth, [
 router.post('/login', [
     body('password').notEmpty().withMessage('密码不能为空'),
     validate,
-], (req, res) => {
+], async (req, res) => {
     const { password } = req.body
-    if (password !== process.env.ADMIN_PASSWORD) {
+    const ok = await verifyPassword(password)
+    if (!ok) {
         req.log.warn('管理员登录失败', { ip: req.ip })
         return res.status(401).json({ success: false, message: '密码错误' })
     }
@@ -316,6 +318,40 @@ router.put('/games/:id/toggle', adminAuth, [
     // ... 原有逻辑，成功后加
     adminLog('切换游戏状态', { id, newStatus })
 })
+
+// GET /api/admin/stats
+router.get('/stats', adminAuth, async (req, res) => {
+    try {
+        const [[{ total }]] = await db.execute('SELECT COUNT(*) AS total FROM s_g_games')
+        const [[{ active }]] = await db.execute('SELECT COUNT(*) AS active FROM s_g_games WHERE is_active = 1')
+        const [[{ totalPlays }]] = await db.execute('SELECT COALESCE(SUM(play_count), 0) AS totalPlays FROM s_g_games')
+        const [topGames] = await db.execute(
+            `SELECT id, name, play_count, author
+       FROM s_g_games WHERE is_active = 1
+       ORDER BY play_count DESC LIMIT 5`
+        )
+        const [recentGames] = await db.execute(
+            `SELECT id, name, created_at, author
+       FROM s_g_games
+       ORDER BY created_at DESC LIMIT 5`
+        )
+        res.json({
+            success: true,
+            data: {
+                total,
+                active,
+                inactive: total - active,
+                totalPlays,
+                topGames,
+                recentGames,
+            },
+        })
+    } catch (err) {
+        req.log.error('GET /admin/stats 失败', { message: err.message })
+        res.status(500).json({ success: false, message: '服务器错误' })
+    }
+})
+
 
 // ── GET /api/admin/api-list  接口文档（需要 token）────────────────
 router.get('/api-list', adminAuth, (_req, res) => {
