@@ -41,6 +41,13 @@ const router = createRouter({
             component: () => import('@/views/AdminView.vue'),
             meta: { title: '站点管理 - 桜游戏屋' },
         },
+        // ── 新增：在线游戏管理页（需管理员登录）──────────────────
+        {
+            path: '/online-games',
+            name: 'online-games',
+            component: () => import('@/views/OnlineGamesView.vue'),
+            meta: { title: '在线游戏管理 · 桜', requiresAdmin: true },
+        },
         { path: '/:pathMatch(.*)*', redirect: '/' },
         // ── 404 兜底，必须放最后 ─────────────────────────────────────────
         {

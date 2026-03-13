@@ -19,6 +19,11 @@
           <router-link v-if="adminStore.settings.upload_enabled" to="/add" class="nav-link" active-class="active">
             📤 上传游戏
           </router-link>
+          <!-- 在线游戏管理（仅管理员登录后显示） -->
+          <router-link v-if="isAdminLoggedIn" to="/online-games" class="nav-link nav-link-manage" active-class="active"
+            title="在线游戏管理">
+            🎮 游戏管理
+          </router-link>
           <router-link v-if="adminStore.settings.editor_enabled" to="/editor" class="nav-link nav-link-editor"
             active-class="active">
             ✏️ 编辑器
@@ -223,6 +228,10 @@ const localGamesStore = useLocalGamesStore()
 // ── 存储面板状态 ─────────────────────────────────────────────
 const storageOpen = ref(false)
 const expandGames = ref(false)
+
+// ── 管理员登录状态（控制导航项显示）─────────────────────────
+// 直接读 localStorage，与 admin store 的 token 机制一致
+const isAdminLoggedIn = computed(() => !!localStorage.getItem('admin_token'))
 
 function openStorage() {
   refresh()
