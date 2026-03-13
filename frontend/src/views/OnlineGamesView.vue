@@ -27,30 +27,21 @@
         <!-- 工具栏 -->
         <div class="og-toolbar">
             <div class="og-toolbar-inner">
-                <!-- 搜索 -->
                 <div class="search-wrap">
                     <span class="search-icon">🔍</span>
                     <input v-model="query.search" class="og-search" placeholder="搜索游戏名称、标签、作者…"
                         @input="onSearchInput" />
                     <button v-if="query.search" class="search-clear" @click="clearSearch">✕</button>
                 </div>
-
-                <!-- 状态筛选 -->
                 <div class="filter-tabs">
                     <button v-for="f in statusFilters" :key="f.value" class="filter-tab"
-                        :class="{ active: query.status === f.value }" @click="setStatus(f.value)">
-                        {{ f.label }}
-                    </button>
+                        :class="{ active: query.status === f.value }" @click="setStatus(f.value)">{{ f.label }}</button>
                 </div>
-
-                <!-- 排序 -->
                 <select v-model="query.sort" class="og-select" @change="loadGames(1)">
                     <option value="newest">最新入库</option>
                     <option value="hottest">最多游玩</option>
                     <option value="order">权重排序</option>
                 </select>
-
-                <!-- 每页数量 -->
                 <select v-model="query.limit" class="og-select og-select-sm" @change="loadGames(1)">
                     <option :value="10">10条/页</option>
                     <option :value="20">20条/页</option>
@@ -59,22 +50,19 @@
             </div>
         </div>
 
-        <!-- 主体：表格 -->
+        <!-- 主体 -->
         <div class="og-main">
-            <!-- 加载中 -->
             <div v-if="store.loading" class="og-loading">
                 <span class="loading-spin">🌸</span>
                 <span>加载中…</span>
             </div>
 
-            <!-- 空状态 -->
             <div v-else-if="store.games.length === 0" class="og-empty">
                 <div class="og-empty-icon">🎮</div>
                 <div class="og-empty-text">暂无游戏</div>
                 <div class="og-empty-sub">尝试清空搜索条件</div>
             </div>
 
-            <!-- 游戏表格 -->
             <div v-else class="og-table-wrap">
                 <table class="og-table">
                     <thead>
@@ -111,19 +99,17 @@
                             </td>
                             <td class="td-date">{{ formatDate(game.created_at) }}</td>
                             <td class="td-actions">
-                                <button class="btn-act btn-preview" title="在新窗口预览" @click="previewGame(game)">
-                                    👁
-                                </button>
-                                <button class="btn-act btn-edit" title="编辑" @click="openEdit(game)">
-                                    ✏️
+                                <button class="btn-act btn-preview" title="预览游戏" @click="openPreview(game)">👁</button>
+                                <button class="btn-act btn-edit" title="编辑" :disabled="loadingEditId === game.id"
+                                    @click="openEdit(game)">
+                                    <!-- 点击后显示加载动画，防止重复点击 -->
+                                    <span v-if="loadingEditId === game.id" class="btn-spin">⏳</span>
+                                    <span v-else>✏️</span>
                                 </button>
                                 <button class="btn-act" :class="game.is_active ? 'btn-toggle-off' : 'btn-toggle-on'"
-                                    :title="game.is_active ? '下架' : '上架'" @click="toggleGame(game)">
-                                    {{ game.is_active ? '⬇' : '⬆' }}
-                                </button>
-                                <button class="btn-act btn-del" title="永久删除" @click="deleteGame(game)">
-                                    🗑
-                                </button>
+                                    :title="game.is_active ? '下架' : '上架'" @click="toggleGame(game)">{{ game.is_active ?
+                                        '⬇' : '⬆' }}</button>
+                                <button class="btn-act btn-del" title="永久删除" @click="deleteGame(game)">🗑</button>
                             </td>
                         </tr>
                     </tbody>
@@ -143,7 +129,7 @@
             </div>
         </div>
 
-        <!-- ── 编辑弹窗 ─────────────────────────────────────────── -->
+        <!-- ── 编辑弹窗 ───────────────────────────────────────────── -->
         <Teleport to="body">
             <Transition name="modal">
                 <div v-if="editOpen" class="modal-overlay" @click.self="closeEdit">
@@ -153,94 +139,121 @@
                             <button class="modal-close" @click="closeEdit">✕</button>
                         </div>
 
-                        <div class="modal-body">
-                            <!-- 基本信息 -->
-                            <div class="form-section">基本信息</div>
-
-                            <div class="form-row">
-                                <label class="form-label">游戏名称 <em>*</em></label>
-                                <input v-model="editForm.name" class="form-input" placeholder="游戏名称" maxlength="255" />
-                            </div>
-
-                            <div class="form-row">
-                                <label class="form-label">游戏介绍</label>
-                                <textarea v-model="editForm.description" class="form-textarea" placeholder="游戏介绍（可选）"
-                                    rows="3" maxlength="1000" />
-                            </div>
-
-                            <div class="form-grid">
-                                <div class="form-row">
-                                    <label class="form-label">标签</label>
-                                    <input v-model="editForm.tags" class="form-input" placeholder="逗号分隔，如：益智,休闲"
-                                        maxlength="500" />
-                                </div>
-                                <div class="form-row">
-                                    <label class="form-label">作者</label>
-                                    <input v-model="editForm.author" class="form-input" placeholder="作者名"
-                                        maxlength="100" />
-                                </div>
-                            </div>
-
-                            <div class="form-grid">
-                                <div class="form-row">
-                                    <label class="form-label">排序权重</label>
-                                    <input v-model.number="editForm.sort_order" class="form-input" type="number" min="0"
-                                        placeholder="数值越大越靠前" />
-                                </div>
-                                <div class="form-row">
-                                    <label class="form-label">封面图 URL</label>
-                                    <input v-model="editForm.image_url" class="form-input"
-                                        placeholder="https://… 或留空" />
-                                </div>
-                            </div>
-
-                            <!-- 代码编辑 -->
-                            <div class="form-section">
-                                游戏代码
-                                <span class="form-section-sub">（修改后将覆盖数据库中的 game_code）</span>
-                            </div>
-                            <div class="code-toolbar">
-                                <span class="code-bytes">{{ codeBytes }}</span>
-                                <button class="btn-code-toggle" @click="showCode = !showCode">
-                                    {{ showCode ? '收起代码' : '展开编辑代码' }}
-                                </button>
-                            </div>
-                            <Transition name="expand">
-                                <textarea v-if="showCode" v-model="editForm.game_code" class="form-code" rows="16"
-                                    spellcheck="false" placeholder="完整 HTML 游戏代码…" />
-                            </Transition>
+                        <!-- 弹窗内加载态：拉取 game_code 期间显示 -->
+                        <div v-if="editLoading" class="edit-loading">
+                            <span class="loading-spin">🌸</span>
+                            <span>正在加载游戏数据…</span>
                         </div>
 
-                        <div class="modal-footer">
-                            <div class="modal-footer-left">
-                                <span class="footer-tip">{{ saveStatus }}</span>
+                        <template v-else>
+                            <div class="modal-body">
+                                <!-- 基本信息 -->
+                                <div class="form-section">基本信息</div>
+
+                                <div class="form-row">
+                                    <label class="form-label">游戏名称 <em>*</em></label>
+                                    <input v-model="editForm.name" class="form-input" placeholder="游戏名称"
+                                        maxlength="255" />
+                                </div>
+
+                                <div class="form-row">
+                                    <label class="form-label">游戏介绍</label>
+                                    <textarea v-model="editForm.description" class="form-textarea"
+                                        placeholder="游戏介绍（可选）" rows="3" maxlength="1000" />
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="form-row">
+                                        <label class="form-label">标签</label>
+                                        <input v-model="editForm.tags" class="form-input" placeholder="逗号分隔，如：益智,休闲"
+                                            maxlength="500" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label class="form-label">作者</label>
+                                        <input v-model="editForm.author" class="form-input" placeholder="作者名"
+                                            maxlength="100" />
+                                    </div>
+                                </div>
+
+                                <div class="form-grid">
+                                    <div class="form-row">
+                                        <label class="form-label">排序权重</label>
+                                        <input v-model.number="editForm.sort_order" class="form-input" type="number"
+                                            min="0" />
+                                    </div>
+                                    <div class="form-row">
+                                        <label class="form-label">封面图 URL</label>
+                                        <input v-model="editForm.image_url" class="form-input"
+                                            placeholder="https://… 或留空" />
+                                    </div>
+                                </div>
+
+                                <!-- 游戏代码 -->
+                                <div class="form-section">
+                                    游戏代码
+                                    <span class="form-section-sub">（修改后将覆盖数据库中的 game_code）</span>
+                                </div>
+
+                                <div class="code-toolbar">
+                                    <!-- 修复核心：codeBytes 现在能正确显示，因为 editForm.game_code 已从详情接口获取 -->
+                                    <div class="code-meta">
+                                        <span class="code-bytes" :class="codeBytesClass">{{ codeBytes }}</span>
+                                        <span class="code-lines">· {{ codeLines }} 行</span>
+                                    </div>
+                                    <button class="btn-code-toggle" @click="showCode = !showCode">
+                                        {{ showCode ? '▲ 收起代码' : '▼ 展开编辑代码' }}
+                                    </button>
+                                </div>
+
+                                <Transition name="expand">
+                                    <div v-if="showCode" class="code-editor-wrap">
+                                        <textarea v-model="editForm.game_code" class="form-code" rows="18"
+                                            spellcheck="false" placeholder="完整 HTML 游戏代码…" />
+                                    </div>
+                                </Transition>
                             </div>
-                            <div class="modal-footer-right">
-                                <button class="btn-cancel" @click="closeEdit">取消</button>
-                                <button class="btn-save" :disabled="saving" @click="saveEdit">
-                                    {{ saving ? '保存中…' : '💾 保存' }}
-                                </button>
+
+                            <div class="modal-footer">
+                                <div class="modal-footer-left">
+                                    <span class="footer-tip" :class="{
+                                        'tip-ok': saveStatus.startsWith('✅'),
+                                        'tip-err': saveStatus.startsWith('❌'),
+                                        'tip-warn': saveStatus.startsWith('⚠️'),
+                                    }">{{ saveStatus }}</span>
+                                </div>
+                                <div class="modal-footer-right">
+                                    <button class="btn-cancel" @click="closeEdit">取消</button>
+                                    <button class="btn-save" :disabled="saving" @click="saveEdit">
+                                        {{ saving ? '保存中…' : '💾 保存' }}
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        </template>
                     </div>
                 </div>
             </Transition>
         </Teleport>
 
-        <!-- ── 预览弹窗 ─────────────────────────────────────────── -->
+        <!-- ── 预览弹窗 ───────────────────────────────────────────── -->
         <Teleport to="body">
             <Transition name="modal">
                 <div v-if="previewOpen" class="modal-overlay preview-overlay" @click.self="previewOpen = false">
                     <div class="preview-panel">
                         <div class="preview-header">
-                            <span class="modal-title">👁 预览：{{ previewGame_.name }}</span>
+                            <span class="modal-title">👁 预览：{{ previewData.name }}</span>
                             <div style="display:flex;gap:8px">
-                                <button class="btn-fullscreen" @click="openFullscreen">⛶ 全屏</button>
+                                <!-- 预览时同样需要加载 game_code，loading 期间禁用全屏 -->
+                                <span v-if="previewLoading" class="preview-loading-tip">加载中…</span>
+                                <button v-else class="btn-fullscreen" @click="openFullscreen">⛶ 全屏</button>
                                 <button class="modal-close" @click="previewOpen = false">✕</button>
                             </div>
                         </div>
-                        <iframe ref="previewIframe" class="preview-iframe" sandbox="allow-scripts allow-same-origin"
-                            :srcdoc="previewGame_.game_code" />
+                        <div v-if="previewLoading" class="preview-placeholder">
+                            <span class="loading-spin" style="font-size:2rem">🌸</span>
+                            <span>正在加载游戏…</span>
+                        </div>
+                        <iframe v-else ref="previewIframe" class="preview-iframe"
+                            sandbox="allow-scripts allow-same-origin allow-modals" :srcdoc="previewData.game_code" />
                     </div>
                 </div>
             </Transition>
@@ -252,6 +265,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useOnlineGamesStore } from '@/stores/onlineGames'
 import { adminUpdateGame, adminDeleteGame, adminToggleGame } from '@/api/admin'
+import { fetchGame } from '@/api/games'
 
 // ── Store ─────────────────────────────────────────────────────
 const store = useOnlineGamesStore()
@@ -270,24 +284,21 @@ const statusFilters = [
     { label: '已下架', value: 'inactive' },
 ]
 
-// 防抖搜索
 let searchTimer: ReturnType<typeof setTimeout>
 function onSearchInput() {
     clearTimeout(searchTimer)
     searchTimer = setTimeout(() => loadGames(1), 400)
 }
-
 function clearSearch() {
     query.value.search = ''
     loadGames(1)
 }
-
 function setStatus(v: string) {
     query.value.status = v as typeof query.value.status
     loadGames(1)
 }
 
-// ── 加载数据 ──────────────────────────────────────────────────
+// ── 加载列表 ──────────────────────────────────────────────────
 async function loadGames(page = 1) {
     await store.fetchGames({
         page,
@@ -300,7 +311,7 @@ async function loadGames(page = 1) {
 
 onMounted(() => loadGames(1))
 
-// ── 分页列表 ──────────────────────────────────────────────────
+// ── 分页 ──────────────────────────────────────────────────────
 const pageList = computed(() => {
     const { page, pages } = store.pagination
     if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1)
@@ -312,18 +323,17 @@ const pageList = computed(() => {
     return list
 })
 
-// ── 工具函数 ──────────────────────────────────────────────────
+// ── 工具 ──────────────────────────────────────────────────────
 function parseTags(tags: string): string[] {
     return tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []
 }
-
 function formatDate(dt: string): string {
     if (!dt) return '—'
     const d = new Date(dt)
     return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-// ── 下架 / 上架 ──────────────────────────────────────────────
+// ── 上下架 ────────────────────────────────────────────────────
 async function toggleGame(game: { id: number; name: string; is_active: number }) {
     const action = game.is_active ? '下架' : '上架'
     if (!confirm(`确认${action}游戏「${game.name}」？`)) return
@@ -335,7 +345,7 @@ async function toggleGame(game: { id: number; name: string; is_active: number })
     }
 }
 
-// ── 永久删除 ─────────────────────────────────────────────────
+// ── 永久删除 ──────────────────────────────────────────────────
 async function deleteGame(game: { id: number; name: string }) {
     if (!confirm(`确认永久删除游戏「${game.name}」？\n此操作不可恢复，存档数据也将一并清除。`)) return
     try {
@@ -346,7 +356,19 @@ async function deleteGame(game: { id: number; name: string }) {
     }
 }
 
-// ── 编辑弹窗 ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 编辑弹窗
+// ─────────────────────────────────────────────────────────────
+// 【修复核心】
+//   列表接口 GET /api/admin/games 不返回 game_code（LONGTEXT 字段太大，
+//   列表查询只返回元数据），因此 game.game_code 始终为 undefined/空串，
+//   导致代码字节数显示 0B。
+//
+//   修复方案：openEdit 点击时，先调用 GET /api/games/:id（详情接口，
+//   返回完整字段含 game_code），拿到数据后再填充 editForm。
+//   期间显示 editLoading 状态，防止用户看到空表单。
+// ═══════════════════════════════════════════════════════════════
+
 interface EditForm {
     id: number
     name: string
@@ -359,22 +381,47 @@ interface EditForm {
 }
 
 const editOpen = ref(false)
+const editLoading = ref(false)   // ← 新增：拉取详情时的 loading 状态
+const loadingEditId = ref<number | null>(null)  // ← 新增：表格行按钮的 loading 标记
 const saving = ref(false)
 const showCode = ref(false)
 const saveStatus = ref('')
+
 const editForm = ref<EditForm>({
     id: 0, name: '', description: '', tags: '',
     author: '', sort_order: 0, image_url: '', game_code: '',
 })
 
+// 代码体积显示（修复后能正确计算，因为 game_code 已真实填充）
 const codeBytes = computed(() => {
     const bytes = new Blob([editForm.value.game_code]).size
+    if (bytes === 0) return '0 B'
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 })
 
-function openEdit(game: any) {
+// 代码体积颜色提示
+const codeBytesClass = computed(() => {
+    const bytes = new Blob([editForm.value.game_code]).size
+    if (bytes === 0) return 'bytes-empty'
+    if (bytes > 512 * 1024) return 'bytes-warn'   // > 512KB 警告
+    return 'bytes-ok'
+})
+
+// 代码行数统计
+const codeLines = computed(() =>
+    editForm.value.game_code
+        ? editForm.value.game_code.split('\n').length
+        : 0
+)
+
+/**
+ * openEdit：先用列表数据填充基本字段（让弹窗立即打开），
+ * 同时异步请求详情接口获取 game_code，获取后更新表单。
+ */
+async function openEdit(game: any) {
+    // 1. 先用列表已有数据填充（不含 game_code，先置空）
     editForm.value = {
         id: game.id,
         name: game.name ?? '',
@@ -383,11 +430,26 @@ function openEdit(game: any) {
         author: game.author ?? '',
         sort_order: game.sort_order ?? 0,
         image_url: game.image_url ?? '',
-        game_code: game.game_code ?? '',
+        game_code: '',   // 先置空，等详情接口返回后填充
     }
     showCode.value = false
     saveStatus.value = ''
+    editLoading.value = true
+    loadingEditId.value = game.id
     editOpen.value = true
+
+    // 2. 异步拉取完整详情（含 game_code）
+    try {
+        const res = await fetchGame(game.id)
+        // fetchGame 返回结构：{ data: { ...game } } 或直接 { ...game }
+        const detail = res?.data ?? res
+        editForm.value.game_code = detail.game_code ?? ''
+    } catch (e: any) {
+        saveStatus.value = `⚠️ 加载代码失败：${e.message}`
+    } finally {
+        editLoading.value = false
+        loadingEditId.value = null
+    }
 }
 
 function closeEdit() {
@@ -421,14 +483,31 @@ async function saveEdit() {
     }
 }
 
-// ── 预览弹窗 ─────────────────────────────────────────────────
-const previewOpen = ref(false)
-const previewIframe = ref<HTMLIFrameElement | null>(null)
-const previewGame_ = ref<{ name: string; game_code: string }>({ name: '', game_code: '' })
+// ═══════════════════════════════════════════════════════════════
+// 预览弹窗
+// 同理：预览也需要从详情接口获取 game_code，
+// 列表数据中 game_code 为空时 srcdoc 为空白页。
+// ═══════════════════════════════════════════════════════════════
 
-function previewGame(game: any) {
-    previewGame_.value = { name: game.name, game_code: game.game_code }
+const previewOpen = ref(false)
+const previewLoading = ref(false)
+const previewIframe = ref<HTMLIFrameElement | null>(null)
+const previewData = ref<{ name: string; game_code: string }>({ name: '', game_code: '' })
+
+async function openPreview(game: any) {
+    previewData.value = { name: game.name, game_code: '' }
+    previewLoading.value = true
     previewOpen.value = true
+
+    try {
+        const res = await fetchGame(game.id)
+        const detail = res?.data ?? res
+        previewData.value.game_code = detail.game_code ?? ''
+    } catch (e: any) {
+        previewData.value.game_code = `<p style="color:red;padding:20px">加载失败：${(e as any).message}</p>`
+    } finally {
+        previewLoading.value = false
+    }
 }
 
 function openFullscreen() {
@@ -437,7 +516,7 @@ function openFullscreen() {
     }
 }
 
-// 关闭弹窗时恢复滚动
+// 弹窗开关时控制 body 滚动
 watch([editOpen, previewOpen], ([e, p]) => {
     document.body.style.overflow = (e || p) ? 'hidden' : ''
 })
@@ -522,7 +601,6 @@ watch([editOpen, previewOpen], ([e, p]) => {
     border-bottom: 1px solid var(--border, #f0d6df);
     position: sticky;
     top: 64px;
-    /* header 高度 */
     z-index: 10;
     box-shadow: 0 2px 8px rgba(196, 77, 117, 0.06);
 }
@@ -599,7 +677,7 @@ watch([editOpen, previewOpen], ([e, p]) => {
 
 .filter-tab.active {
     background: var(--sakura-500, #e87da0);
-    border-color: var(--sakura-500, #e87da0);
+    border-color: var(--sakura-500);
     color: #fff;
 }
 
@@ -636,9 +714,8 @@ watch([editOpen, previewOpen], ([e, p]) => {
 }
 
 .loading-spin {
-    animation: spin 1s linear infinite;
+    animation: spin 1.2s linear infinite;
     display: inline-block;
-    font-size: 1.4rem;
 }
 
 @keyframes spin {
@@ -773,7 +850,6 @@ watch([editOpen, previewOpen], ([e, p]) => {
     white-space: nowrap;
 }
 
-/* 状态徽章 */
 .status-badge {
     display: inline-block;
     padding: 3px 10px;
@@ -793,12 +869,10 @@ watch([editOpen, previewOpen], ([e, p]) => {
     color: #dc2626;
 }
 
-/* 操作按钮 */
 .td-actions {
     display: flex;
     gap: 5px;
     align-items: center;
-    flex-wrap: nowrap;
 }
 
 .btn-act {
@@ -813,6 +887,17 @@ watch([editOpen, previewOpen], ([e, p]) => {
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
+}
+
+.btn-act:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-spin {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    font-size: 0.8rem;
 }
 
 .btn-preview:hover {
@@ -908,7 +993,7 @@ watch([editOpen, previewOpen], ([e, p]) => {
     background: #fff;
     border-radius: 20px;
     width: 100%;
-    max-width: 700px;
+    max-width: 720px;
     max-height: 92vh;
     display: flex;
     flex-direction: column;
@@ -970,12 +1055,19 @@ watch([editOpen, previewOpen], ([e, p]) => {
     gap: 10px;
 }
 
-.footer-tip {
-    font-size: 0.82rem;
-    color: var(--ink-500, #888);
+/* 弹窗内加载态 */
+.edit-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 60px;
+    color: var(--ink-400, #aaa);
+    font-size: 0.95rem;
+    flex: 1;
 }
 
-/* 表单元素 */
+/* ── 表单 ───────────────────────────────────────────────────── */
 .form-section {
     font-size: 0.72rem;
     font-weight: 700;
@@ -1044,6 +1136,7 @@ watch([editOpen, previewOpen], ([e, p]) => {
     resize: vertical;
 }
 
+/* 代码工具栏 */
 .code-toolbar {
     display: flex;
     align-items: center;
@@ -1051,7 +1144,31 @@ watch([editOpen, previewOpen], ([e, p]) => {
     margin-bottom: 8px;
 }
 
+.code-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .code-bytes {
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.bytes-empty {
+    color: var(--ink-300, #ccc);
+}
+
+.bytes-ok {
+    color: #059669;
+}
+
+.bytes-warn {
+    color: #d97706;
+}
+
+.code-lines {
     font-size: 0.75rem;
     color: var(--ink-400, #aaa);
 }
@@ -1072,23 +1189,48 @@ watch([editOpen, previewOpen], ([e, p]) => {
     background: var(--sakura-100, #fde8ef);
 }
 
+.code-editor-wrap {
+    margin-bottom: 4px;
+}
+
 .form-code {
     width: 100%;
     padding: 12px;
     border: 1.5px solid var(--border, #f0d6df);
     border-radius: 10px;
-    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     font-size: 0.8rem;
     background: #1a1020;
     color: #f0e0e8;
     outline: none;
     resize: vertical;
-    transition: border-color 0.2s;
     line-height: 1.6;
+    transition: border-color 0.2s;
 }
 
 .form-code:focus {
     border-color: var(--sakura-400, #e87da0);
+}
+
+/* 底部提示文字 */
+.footer-tip {
+    font-size: 0.82rem;
+    color: var(--ink-400, #aaa);
+}
+
+.footer-tip.tip-ok {
+    color: #059669;
+    font-weight: 600;
+}
+
+.footer-tip.tip-err {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.footer-tip.tip-warn {
+    color: #d97706;
+    font-weight: 600;
 }
 
 .btn-cancel {
@@ -1168,6 +1310,22 @@ watch([editOpen, previewOpen], ([e, p]) => {
     background: rgba(255, 255, 255, 0.1);
 }
 
+.preview-loading-tip {
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.preview-placeholder {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.95rem;
+}
+
 .btn-fullscreen {
     padding: 5px 14px;
     border-radius: 12px;
@@ -1205,7 +1363,7 @@ watch([editOpen, previewOpen], ([e, p]) => {
 
 .expand-enter-active,
 .expand-leave-active {
-    transition: all 0.2s ease;
+    transition: all 0.22s ease;
     overflow: hidden;
 }
 
@@ -1218,6 +1376,6 @@ watch([editOpen, previewOpen], ([e, p]) => {
 .expand-enter-to,
 .expand-leave-from {
     opacity: 1;
-    max-height: 600px;
+    max-height: 700px;
 }
 </style>
