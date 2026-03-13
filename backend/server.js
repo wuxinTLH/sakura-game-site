@@ -5,6 +5,7 @@ const cors = require('cors')
 const rateLimit = require('express-rate-limit')
 const { requestLogger, logger } = require('./middleware/logger')
 const savesRouter = require('./routes/saves')
+const assetsRouter = require('./routes/assets')
 
 const gamesRouter = require('./routes/games')
 const uploadRouter = require('./routes/upload')
@@ -59,6 +60,7 @@ app.use('/api/upload', uploadRouter)
 app.use('/api/admin/login', loginLimiter)
 app.use('/api/admin', adminRouter)
 app.use('/api/saves', savesRouter)
+app.use('/api/assets', assetsRouter)
 
 app.get('/api/health', async (_req, res) => {
     let dbOk = false

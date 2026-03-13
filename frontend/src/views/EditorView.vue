@@ -30,6 +30,10 @@
                     {{ currentTheme === 'dark' ? '☀️ 亮色' : '🌙 暗色' }}
                 </button>
                 <div class="topbar-divider"></div>
+                <!-- ★ 资源管理器入口按钮 -->
+                <button class="btn-icon-text btn-asset" @click="assetOpen = true" title="资源管理器（图片 / 音频 / JSON）">🗂
+                    资源</button>
+                <div class="topbar-divider"></div>
                 <button class="btn-icon-text" @click="clearCode" title="清空">🗑 清空</button>
                 <button class="btn-save" @click="openSaveModal" :disabled="!hasCode" title="保存 Ctrl+S">
                     💾 保存到本地
@@ -83,7 +87,7 @@
             <div class="toolbar-group">
                 <span class="toolbar-label">模板：</span>
                 <button v-for="tpl in templates" :key="tpl.name" class="btn-tpl" @click="applyTemplate(tpl)">{{ tpl.name
-                }}</button>
+                    }}</button>
             </div>
             <div class="toolbar-group toolbar-shortcuts">
                 <span class="toolbar-label">快捷键：</span>
@@ -123,6 +127,13 @@
             </div>
         </div>
 
+        <!-- ★ 资源管理器浮层 ─────────────────────────────────────────
+             编辑器里的本地草稿没有服务端 gameId，因此传 :game-id="null"。
+             资源管理器只显示全部公共资源（s_g_assets.game_id IS NULL）。
+             点击「插入」后，代码片段会插入到 CodeMirror 光标位置。
+        ──────────────────────────────────────────────────────────── -->
+        <AssetManager v-model:open="assetOpen" :game-id="null" @insert="onAssetInsert" />
+
     </div>
 </template>
 
@@ -131,6 +142,9 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLocalGamesStore } from '@/stores/localGames'
 import { useCodeMirror, type EditorTheme, type EditorLang } from '@/composables/useCodeMirror'
+// ★ 新增导入
+import AssetManager from '@/components/AssetManager.vue'
+import type { Asset } from '@/api/assets'
 
 const store = useLocalGamesStore()
 const route = useRoute()
@@ -413,6 +427,54 @@ onUnmounted(() => {
     clearTimeout(previewTimer)
     clearTimeout(draftTimer)
 })
+
+// ══════════════════════════════════════════════════════════════════
+// ★ 资源管理器
+// ──────────────────────────────────────────────────────────────────
+// 编辑器处于本地草稿模式，没有服务端 gameId，固定传 null，
+// 资源管理器将展示全部公共资源（s_g_assets.game_id IS NULL）。
+//
+// 插入策略（三级降级）：
+//   Level 1 — useCodeMirror 若额外暴露了 editorView ref，直接 dispatch
+//   Level 2 — 通过 DOM 找 .cm-editor 上 CodeMirror 挂载的私有属性拿实例
+//   Level 3 — 兜底：getValue() + 字符串拼接 + setValue()，追加到末尾
+// ══════════════════════════════════════════════════════════════════
+
+const assetOpen = ref(false)
+
+function onAssetInsert({ snippet }: { snippet: string; asset: Asset }) {
+    // ── Level 1：composable 若暴露了 EditorView 实例直接用 ────────
+    // （若 useCodeMirror 未导出 editorView，此处 ts-ignore 跳过）
+    // @ts-ignore
+    const exposedView = typeof editorView !== 'undefined' ? editorView?.value : null
+
+    // ── Level 2：从 DOM 上读取 CodeMirror 挂载的实例 ─────────────
+    const cmEl = (editorContainer.value as HTMLElement | null)
+        ?.querySelector('.cm-editor') as HTMLElement | null
+    // CodeMirror 6 将 EditorView 实例挂载在 DOM 的 `cmView` 属性上
+    // @ts-ignore
+    const domView = cmEl?.cmView ?? null
+
+    const view = exposedView ?? domView
+
+    if (view && typeof view.dispatch === 'function') {
+        // 有实例：精确插入到当前选区/光标位置
+        const { from, to } = view.state.selection.main
+        view.dispatch({
+            changes: { from, to, insert: snippet },
+            selection: { anchor: from + snippet.length },
+        })
+        view.focus()
+    } else {
+        // Level 3 兜底：追加到代码末尾
+        const current = getValue()
+        setValue(current + (current.endsWith('\n') ? '' : '\n') + snippet)
+    }
+
+    // 触发预览刷新 & 标记未保存
+    schedulePreview(getValue())
+    saved.value = false
+}
 </script>
 
 <style scoped>
@@ -573,6 +635,19 @@ onUnmounted(() => {
     cursor: not-allowed;
 }
 
+/* ★ 资源管理器按钮——桜色区别于普通操作按钮 */
+.btn-asset {
+    color: var(--sakura-300, #f9b8cc) !important;
+    border-color: #3d2535 !important;
+    background: #1e1228 !important;
+}
+
+.btn-asset:hover:not(:disabled) {
+    background: #2a1a38 !important;
+    color: var(--sakura-200, #fcd5e4) !important;
+    border-color: var(--sakura-500, #e87da0) !important;
+}
+
 .sel-lang {
     padding: 5px 10px;
     border-radius: 7px;
@@ -599,6 +674,7 @@ onUnmounted(() => {
     font-weight: 700;
     transition: all 0.2s;
     cursor: pointer;
+    border: none;
 }
 
 .btn-save:hover:not(:disabled) {
@@ -902,6 +978,7 @@ kbd {
     font-weight: 700;
     font-size: 0.86rem;
     cursor: pointer;
+    border: none;
 }
 
 .btn-confirm:disabled {

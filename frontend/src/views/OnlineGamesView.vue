@@ -200,9 +200,15 @@
                                         <span class="code-bytes" :class="codeBytesClass">{{ codeBytes }}</span>
                                         <span class="code-lines">· {{ codeLines }} 行</span>
                                     </div>
-                                    <button class="btn-code-toggle" @click="showCode = !showCode">
-                                        {{ showCode ? '▲ 收起代码' : '▼ 展开编辑代码' }}
-                                    </button>
+                                    <div style="display:flex;gap:8px">
+                                        <!-- 资源管理器入口 -->
+                                        <button class="btn-asset-mgr" @click="assetOpen = true" title="打开资源管理器">
+                                            🗂 资源管理器
+                                        </button>
+                                        <button class="btn-code-toggle" @click="showCode = !showCode">
+                                            {{ showCode ? '▲ 收起代码' : '▼ 展开编辑代码' }}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <Transition name="expand">
@@ -253,11 +259,14 @@
                             <span>正在加载游戏…</span>
                         </div>
                         <iframe v-else ref="previewIframe" class="preview-iframe"
-                            sandbox="allow-scripts allow-same-origin allow-modals" :srcdoc="previewData.game_code" />
+                            sandbox="allow-scripts allow-same-origin" :srcdoc="previewData.game_code" />
                     </div>
                 </div>
             </Transition>
         </Teleport>
+
+        <!-- ── 资源管理器 ────────────────────────────────────────── -->
+        <AssetManager v-model:open="assetOpen" :game-id="editForm.id || null" @insert="onAssetInsert" />
     </div>
 </template>
 
@@ -266,6 +275,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useOnlineGamesStore } from '@/stores/onlineGames'
 import { adminUpdateGame, adminDeleteGame, adminToggleGame } from '@/api/admin'
 import { fetchGame } from '@/api/games'
+import AssetManager from '@/components/AssetManager.vue'
 
 // ── Store ─────────────────────────────────────────────────────
 const store = useOnlineGamesStore()
@@ -520,6 +530,36 @@ function openFullscreen() {
 watch([editOpen, previewOpen], ([e, p]) => {
     document.body.style.overflow = (e || p) ? 'hidden' : ''
 })
+
+// ── 资源管理器 ────────────────────────────────────────────────
+const assetOpen = ref(false)
+
+/**
+ * 接收资源管理器的插入事件，将代码片段追加到游戏代码光标处
+ * 由于 textarea 不像 CodeMirror 有内置 API，这里采用：
+ *   1. 优先插入到当前光标位置（selectionStart）
+ *   2. 若焦点不在 textarea 上，则追加到末尾
+ */
+function onAssetInsert({ snippet }: { snippet: string }) {
+    const code = editForm.value.game_code
+    const textarea = document.querySelector<HTMLTextAreaElement>('.form-code')
+
+    if (textarea && document.activeElement === textarea) {
+        const start = textarea.selectionStart
+        const end = textarea.selectionEnd
+        editForm.value.game_code = code.slice(0, start) + snippet + code.slice(end)
+        // 恢复光标到插入内容末尾
+        setTimeout(() => {
+            textarea.selectionStart = textarea.selectionEnd = start + snippet.length
+            textarea.focus()
+        }, 0)
+    } else {
+        // 追加到末尾
+        editForm.value.game_code = code + (code.endsWith('\n') ? '' : '\n') + snippet
+    }
+    // 自动展开代码区
+    showCode.value = true
+}
 </script>
 
 <style scoped>
@@ -1171,6 +1211,24 @@ watch([editOpen, previewOpen], ([e, p]) => {
 .code-lines {
     font-size: 0.75rem;
     color: var(--ink-400, #aaa);
+}
+
+.btn-asset-mgr {
+    padding: 5px 14px;
+    border-radius: 16px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: 1.5px solid var(--sakura-300, #f9b8cc);
+    background: var(--sakura-50, #fff5f8);
+    color: var(--sakura-600, #c44d75);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-asset-mgr:hover {
+    background: var(--sakura-100, #fde8ef);
+    border-color: var(--sakura-400);
 }
 
 .btn-code-toggle {
