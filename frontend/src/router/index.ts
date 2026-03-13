@@ -42,17 +42,37 @@ const router = createRouter({
             meta: { title: '站点管理 - 桜游戏屋' },
         },
         { path: '/:pathMatch(.*)*', redirect: '/' },
+        // ── 404 兜底，必须放最后 ─────────────────────────────────────────
+        {
+            path: '/:pathMatch(.*)*',
+            name: 'not-found',
+            component: () => import('@/views/NotFoundView.vue'),
+            meta: { title: '页面未找到 · 桜游戏屋' },
+        },
     ],
-    scrollBehavior: () => ({ top: 0 }),
+    scrollBehavior(_to, _from, savedPosition) {
+        if (savedPosition) return savedPosition
+        return { top: 0, behavior: 'smooth' }
+    },
 })
 
 router.beforeEach((to, _from, next) => {
-    const adminStore = useAdminStore()
-    const setting = to.meta.requireSetting as keyof typeof adminStore.settings | undefined
-
-    if (setting && !adminStore.settings[setting]) {
-        return next('/')
+    // 设置页面标题
+    if (to.meta?.title) {
+        document.title = to.meta.title as string
     }
+
+    // 功能开关守卫：被管理员关闭的页面重定向到首页
+    const settingKey = to.meta?.requiresSetting as string | undefined
+    if (settingKey) {
+        const adminStore = useAdminStore()
+        const enabled = adminStore.settings[settingKey as keyof typeof adminStore.settings]
+        if (!enabled) {
+            next({ name: 'home' })
+            return
+        }
+    }
+
     next()
 })
 

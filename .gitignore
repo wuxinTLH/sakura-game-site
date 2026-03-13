@@ -4,6 +4,9 @@
 
 # 依赖
 node_modules/
+logs/*.log
+.env
+npm-debug.log*
 .pnp
 .pnp.js
 

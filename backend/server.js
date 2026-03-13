@@ -4,6 +4,7 @@ const express = require('express')
 const cors = require('cors')
 const rateLimit = require('express-rate-limit')
 const { requestLogger, logger } = require('./middleware/logger')
+const savesRouter = require('./routes/saves')
 
 const gamesRouter = require('./routes/games')
 const uploadRouter = require('./routes/upload')
@@ -57,9 +58,23 @@ app.use('/api/games', gamesRouter)
 app.use('/api/upload', uploadRouter)
 app.use('/api/admin/login', loginLimiter)
 app.use('/api/admin', adminRouter)
+app.use('/api/saves', savesRouter)
 
-app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() })
+app.get('/api/health', async (_req, res) => {
+    let dbOk = false
+    try {
+        await db.execute('SELECT 1')
+        dbOk = true
+    } catch { /* ignore */ }
+
+    const status = dbOk ? 200 : 503
+    res.status(status).json({
+        success: dbOk,
+        status: dbOk ? 'ok' : 'degraded',
+        db: dbOk ? 'connected' : 'disconnected',
+        uptime: Math.floor(process.uptime()),
+        ts: new Date().toISOString(),
+    })
 })
 
 // 404

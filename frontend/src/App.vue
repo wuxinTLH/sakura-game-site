@@ -61,8 +61,9 @@
       </p>
     </footer>
 
-    <!-- Toast 全局通知：放在最外层保证层级最高 -->
+    <!-- 全局 UI 层（层级最高） -->
     <ToastContainer />
+    <ConfirmDialog />
   </div>
 </template>
 
@@ -70,6 +71,7 @@
 import { useAdminStore } from '@/stores/admin'
 import ToastContainer from '@/components/ToastContainer.vue'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const adminStore = useAdminStore()
 </script>
@@ -104,29 +106,6 @@ const adminStore = useAdminStore()
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.nav-link-editor {
-  background: linear-gradient(135deg, var(--sakura-500), var(--sakura-600));
-  color: #fff !important;
-  padding: 6px 16px;
-}
-
-.nav-link-editor:hover {
-  opacity: 0.88;
-  background: linear-gradient(135deg, var(--sakura-500), var(--sakura-600));
-}
-
-.nav-link-admin {
-  font-size: 1.1rem;
-  padding: 6px 10px;
-  color: var(--ink-400) !important;
-}
-
-.nav-link-admin:hover,
-.nav-link-admin.active {
-  background: var(--ink-100);
-  color: var(--ink-600) !important;
 }
 
 .logo {
@@ -185,6 +164,29 @@ const adminStore = useAdminStore()
 .nav-link.active {
   background: var(--sakura-100);
   color: var(--sakura-600);
+}
+
+.nav-link-editor {
+  background: linear-gradient(135deg, var(--sakura-500), var(--sakura-600));
+  color: #fff !important;
+  padding: 6px 16px;
+}
+
+.nav-link-editor:hover {
+  opacity: 0.88;
+  background: linear-gradient(135deg, var(--sakura-500), var(--sakura-600));
+}
+
+.nav-link-admin {
+  font-size: 1.1rem;
+  padding: 6px 10px;
+  color: var(--ink-400) !important;
+}
+
+.nav-link-admin:hover,
+.nav-link-admin.active {
+  background: var(--ink-100);
+  color: var(--ink-600) !important;
 }
 
 .header-petal-strip {
