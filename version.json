@@ -1,0 +1,8 @@
+{
+    "name": "Sakura Game Site",
+    "author": "SakuraMikku",
+    "description": "一个基于Vue3和Node.js的在线游戏网站",
+    "version": "v1.0.0",
+    "release_date": "2026-03-12",
+    "status": "dev"
+}

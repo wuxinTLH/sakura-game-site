@@ -62,8 +62,9 @@
                     </div>
                 </div>
                 <div class="preview-wrap">
-                    <iframe ref="previewRef" class="preview-iframe" sandbox="allow-scripts allow-same-origin"
-                        :srcdoc="previewCode" frameborder="0" style="background:#fff" />
+                    <iframe ref="previewRef" class="preview-iframe"
+                        sandbox="allow-scripts allow-same-origin allow-modals" :srcdoc="previewCode" frameborder="0"
+                        style="background:#fff" />
                     <div class="preview-empty" v-if="!hasCode">
                         <span>🎮</span>
                         <p>在左侧输入代码后自动预览</p>
@@ -82,7 +83,7 @@
             <div class="toolbar-group">
                 <span class="toolbar-label">模板：</span>
                 <button v-for="tpl in templates" :key="tpl.name" class="btn-tpl" @click="applyTemplate(tpl)">{{ tpl.name
-                    }}</button>
+                }}</button>
             </div>
             <div class="toolbar-group toolbar-shortcuts">
                 <span class="toolbar-label">快捷键：</span>

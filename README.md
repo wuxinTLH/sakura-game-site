@@ -1,7 +1,6 @@
 # 🌸 桜游戏屋 (Sakura Games Site)
 
 > 一个精美的在线小游戏合集网站，支持游戏列表展示、搜索、在线游玩。
-
 > 本项目 95%+ 由 AI（Claude Sonnet 4.6+）生成
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-pink.svg)](./LICENSE)
@@ -44,7 +43,7 @@ sakura-games-site/
 ├── frontend/
 │   └── src/
 │       ├── api/
-│       │   ├── games.ts          # 游戏接口（sort / publishGame）
+│       │   ├── games.ts          # 游戏接口（sort / publishGame / uploadGame，含 authHttp 鉴权实例）
 │       │   ├── admin.ts          # 管理员接口（token 拦截器 / stats）
 │       │   └── saves.ts          # 存档接口（getSaveSlots / loadSave / writeSave / deleteSave）
 │       ├── assets/
@@ -57,13 +56,14 @@ sakura-games-site/
 │       │   └── ConfirmDialog.vue   # 全局确认弹窗（替代原生 confirm()）
 │       ├── composables/
 │       │   ├── useCodeMirror.ts
+│       │   ├── useGameStorage.ts   # 本地游戏存档/进度/设置（localStorage，3层存储）
 │       │   ├── useToast.ts         # Toast 状态
 │       │   └── useConfirm.ts       # 确认弹窗状态
 │       ├── router/
 │       │   └── index.ts            # 含 404 兜底路由 + 功能开关守卫
 │       ├── stores/
 │       │   ├── games.ts            # 在线游戏状态（sort / 页码分页）
-│       │   ├── localGames.ts
+│       │   ├── localGames.ts       # 本地游戏状态（publishToServer / uploadToServer）
 │       │   └── admin.ts
 │       ├── types/
 │       │   └── game.ts
@@ -74,21 +74,21 @@ sakura-games-site/
 │       │   ├── LocalGamesView.vue  # 含一键发布到线上
 │       │   ├── AddGameView.vue
 │       │   ├── AdminView.vue       # 功能开关/游戏管理/数据统计/接口文档
-│       │   └── NotFoundView.vue    # 404 页面
-│       ├── App.vue                 # ErrorBoundary + ToastContainer + ConfirmDialog
+│       │   └── NotFoundView.vue    # 404 页面（桜主题，含飘落花瓣动画）
+│       ├── App.vue                 # ErrorBoundary + ToastContainer + ConfirmDialog + 存储管理面板
 │       ├── main.ts                 # 全局错误处理
 │       └── shims-vue.d.ts
 ├── database/
 │   ├── init.sql                    # 建库建表（s_g_games）
 │   ├── saves.sql                   # 存档表（s_g_saves）
-│   ├── game.sql                    # 内置游戏数据（含桜迷宫）
+│   ├── game.sql                    # 内置游戏数据
 │   └── settings.sql                # 站点配置表
-├── games/
-│   └── sakura-maze.html            # 🌸 桜迷宫（内置游戏，带 localStorage 存档）
 ├── package.json                    # 根目录：一键启动（concurrently）
 ├── .gitignore
 ├── LICENSE
-└── README.md
+├── README.md                       # 项目介绍
+├── UPDATE.md                       # 版本更新记录
+└── version.json                    # 游戏版本号
 ```
 
 ---
@@ -178,6 +178,7 @@ ADMIN_TOKEN_SECRET=自定义签名密钥（32位以上随机字符串）
 cd ..
 
 # 根目录（concurrently）
+npm install
 npm install -D npx
 
 # 前后端
@@ -287,6 +288,8 @@ http://localhost:8802/api
 | author      | string | 作者                                |
 | sort_order  | number | 排序权重                            |
 
+> ⚠️ 上传时**不要**手动设置 `Content-Type`，让浏览器自动生成含 boundary 的 `multipart/form-data` 头，否则服务端 multer 无法解析。
+
 #### 文件解析规则
 
 | 文件类型 | 处理方式                                               |
@@ -360,6 +363,8 @@ http://localhost:8802/api
 | value      | VARCHAR(500)    | 配置值（`1`=开启，`0`=关闭） |
 | updated_at | DATETIME        | 最后更新时间                 |
 
+内置配置项：
+
 | key              | 默认值 | 说明               |
 | ---------------- | ------ | ------------------ |
 | `editor_enabled` | `1`    | 游戏编辑器功能开关 |
@@ -367,32 +372,60 @@ http://localhost:8802/api
 
 ---
 
+## 本地存储机制
+
+前端使用 `localStorage` 按固定前缀命名空间存储所有本地数据，`App.vue` 提供**存储管理面板**（导航栏 🗄️ 按钮）统一查看和清理。
+
+### 存储键规范
+
+| 键名                   | 来源文件                        | 说明                         |
+| ---------------------- | ------------------------------- | ---------------------------- |
+| `sakura_local_games`   | `stores/localGames.ts`          | 本地游戏列表（JSON 数组）    |
+| `sakura_editor_draft`  | `stores/localGames.ts`          | 编辑器未保存草稿             |
+| `sakura_save:<gameId>` | `composables/useGameStorage.ts` | 游戏存档（多槽位，最多10个） |
+| `sakura_prog:<gameId>` | `composables/useGameStorage.ts` | 游戏进度（最高分/关卡/统计） |
+| `admin_token`          | `api/admin.ts`                  | 管理员登录 Token             |
+
+### 存储管理面板功能
+
+导航栏右侧点击 🗄️ 图标打开，存储使用量超过 75% 时显示红点警告。
+
+| 功能             | 说明                                             |
+| ---------------- | ------------------------------------------------ |
+| 总览             | 已用 KB / 游戏数 / 存档数 / 容量占比             |
+| 清除编辑器草稿   | 删除 `sakura_editor_draft`                       |
+| 展开本地游戏列表 | 逐条清除存档或删除整个游戏（含存档和进度）       |
+| 清除全部存档     | 删除所有 `sakura_save:*` 键                      |
+| 清除全部进度     | 删除所有 `sakura_prog:*` 键                      |
+| 一键清除全部     | 删除所有 `sakura_*` 前缀键（保留 `admin_token`） |
+
+---
+
 ## 内置游戏
 
-### 🌸 桜迷宫 (`games/sakura-maze.html`)
+### 🌸 樱落迷境 (`games/sakura_adventure.html`)
 
-一款随机生成地图的 Roguelite 地牢探索游戏。
+一款基于节点的文字冒险 RPG，约 25 个场景，3 种结局。
 
 **玩法**
-
-- 键盘 `WASD` 或方向键移动；`Z` 键释放全屏技能「樱花爆发」（消耗 20 MP）
-- 也可点击地图上的按钮操作（移动端友好）
-- 击败怪物获得经验和金币，升级后 ATK / HP / MP 全面提升
-- 找到出口 🚪 进入下一层，层数越深怪物越强
-- 等待（`·` 键）可缓慢回复 HP/MP
+- 阅读场景描述，点击选项推进剧情
+- 部分选项需满足属性要求（力量 / 敏捷 / 智慧）或持有特定道具才能触发
+- 收集三道门的令牌（勇 / 慧 / 诚），向白狐献上以解锁最佳结局
+- 使用道具「灵芝露」可恢复 HP 和意志值
 
 **存档系统**
 
-| 机制               | 说明                                             |
-| ------------------ | ------------------------------------------------ |
-| localStorage       | 3 个本地存档槽，无需登录，即时保存/读取          |
-| 服务端存档（可选） | 通过 `/api/saves` 接口持久化到 MySQL，需部署后端 |
+| 机制         | 说明                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| localStorage | 3 个本地存档槽，无需登录，即时保存/读取                                                                   |
+| 键名对齐     | 使用 `sakura_save:local_sakura_adventure` 和 `sakura_prog:local_sakura_adventure`，与存储管理面板完全兼容 |
+| 自动注册     | 首次运行自动写入 `sakura_local_games`，出现在「本地游戏」列表中                                           |
 
 **将游戏入库**
 
-方式一：通过管理后台 `/admin` → 「上传游戏」上传 `sakura-maze.html`
+方式一：通过管理后台 `/admin` → 「上传游戏」上传 `sakura_adventure.html`
 
-方式二：将 `sakura-maze.html` 内容填入 `database/game.sql` 后执行
+方式二：直接保存至本地游戏（`/local` 页面 → 导入）
 
 ---
 
@@ -418,7 +451,7 @@ http://localhost:8802/api
 ### 本地游戏
 - 📋 列表管理 / ▶ 直接游玩 / ✏️ 跳转编辑
 - ⬇ **导出 HTML** — 下载为独立可运行文件
-- 🚀 **一键发布** — 登录管理员后直接推送到线上游戏库
+- 🚀 **一键发布** — 登录管理员后直接推送到线上游戏库（调用带 token 拦截器的 `authHttp` 实例，修复 401 问题）
 
 ### 文件上传
 - 📤 拖拽上传 + 代码预览（前 30 行）
@@ -426,9 +459,10 @@ http://localhost:8802/api
 - 🛡 **内容安全扫描** — 拦截外链脚本 / eval / fetch / XHR / sendBeacon
 
 ### 游戏存档
-- 💾 **localStorage 存档** — 游戏内置，3 槽位，无需后端，即时读写
+- 💾 **localStorage 存档** — `useGameStorage.ts` 提供三层存储（存档槽 / 进度 / 设置），最多 10 个槽位
 - 🌐 **服务端存档 API** — `/api/saves` 提供 CRUD，支持跨设备（需部署后端）
 - 🔑 **客户端标识** — 基于浏览器指纹（UA + 语言 + 时区 + 分辨率）自动生成 `save_key`
+- 🗄️ **存储管理面板** — `App.vue` 内置，可查看用量、分类清理、一键清除
 
 ### 管理员模块
 - 🔐 JWT 登录（bcrypt 密码验证，8 小时有效）
@@ -457,7 +491,7 @@ http://localhost:8802/api
 - 🔔 全局 Toast（替代 alert）
 - 💬 全局 ConfirmDialog（替代 confirm）
 - 🌐 全局错误监听（errorHandler + unhandledrejection + window.error）
-- 🔗 404 兜底路由（NotFoundView）
+- 🔗 404 兜底路由（NotFoundView，桜主题 + 飘落花瓣动画）
 - 📱 响应式设计
 - 🌸 桜主题 + 动态页面 Title
 
@@ -477,25 +511,28 @@ backend/logs/
 
 ## 常见问题
 
-| 问题                                | 原因               | 解决                                                             |
-| ----------------------------------- | ------------------ | ---------------------------------------------------------------- |
-| `Cannot find module 'express'`      | 未安装依赖         | `npm install --prefix backend`                                   |
-| `Cannot find module 'bcryptjs'`     | 缺少 bcryptjs      | `cd backend && npm install bcryptjs`                             |
-| `MySQL 连接失败`                    | 密码或库名错误     | 检查 `.env`                                                      |
-| `EADDRINUSE`                        | 端口被占用         | 修改 `.env` 中的端口号                                           |
-| 前端空白无内容                      | 后端未启动         | 先启动后端再刷新前端                                             |
-| 上传文件报 413                      | 文件超过限制       | 文件需小于 10MB                                                  |
-| 上传文件报「包含不允许的内容」      | 安全扫描拦截       | 检查文件是否含外链脚本/eval/fetch，改用自包含代码                |
-| 管理员登录提示密码错误              | `.env` 未读取到    | 检查 `.env` 是否存在，`injecting env (0)` 表示文件为空           |
-| 管理员登录提示密码错误              | 密码混淆           | 登录密码是 `ADMIN_PASSWORD`，不是 `ADMIN_TOKEN_SECRET`           |
-| 登出后 Token 仍可使用               | 重启清空内存黑名单 | 重启后黑名单归零；生产环境建议接入 Redis 持久化                  |
-| `/api/health` 返回 503              | DB 连接断开        | 检查 MySQL 服务是否运行，查看 `backend/logs/error.log`           |
-| 存档读取返回 404                    | save_key 不匹配    | 浏览器指纹变化（更换设备/隐身模式）会导致 save_key 变化          |
-| 功能开关保存后前端未生效            | 缓存未刷新         | 刷新页面，settings 会在启动时重新拉取                            |
-| 编辑器无法输入内容                  | ref 绑定失败       | 确认 `useCodeMirror` 返回值已解构，模板中使用顶层变量名绑定 ref  |
-| `npm run dev` 报找不到 concurrently | 根目录依赖未装     | 在根目录执行 `npm install`                                       |
-| 首页分页不显示 / 排序无效           | store 结构不匹配   | 确认 `stores/games.ts` 中 `pagination` 含 `page` 和 `pages` 字段 |
-| 404 页面未生效                      | 路由顺序错误       | 确认 `router/index.ts` 中 `/:pathMatch(.*)*` 路由放在最后        |
+| 问题                                | 原因                  | 解决                                                                          |
+| ----------------------------------- | --------------------- | ----------------------------------------------------------------------------- |
+| `Cannot find module 'express'`      | 未安装依赖            | `npm install --prefix backend`                                                |
+| `Cannot find module 'bcryptjs'`     | 缺少 bcryptjs         | `cd backend && npm install bcryptjs`                                          |
+| `MySQL 连接失败`                    | 密码或库名错误        | 检查 `.env`                                                                   |
+| `EADDRINUSE`                        | 端口被占用            | 修改 `.env` 中的端口号                                                        |
+| 前端空白无内容                      | 后端未启动            | 先启动后端再刷新前端                                                          |
+| 上传文件报 413                      | 文件超过限制          | 文件需小于 10MB                                                               |
+| 上传文件报「包含不允许的内容」      | 安全扫描拦截          | 检查文件是否含外链脚本/eval/fetch，改用自包含代码                             |
+| 发布/上传报「未授权，请重新登录」   | 未使用带 token 的实例 | 确认 `games.ts` 中 `publishGame` 和 `uploadGame` 使用 `authHttp` 而非 `http`  |
+| 上传文件服务端解析失败/multer 报错  | Content-Type 设置错误 | 删除手动设置的 `Content-Type: multipart/form-data`，让浏览器自动补全 boundary |
+| 管理员登录提示密码错误              | `.env` 未读取到       | 检查 `.env` 是否存在，`injecting env (0)` 表示文件为空                        |
+| 管理员登录提示密码错误              | 密码混淆              | 登录密码是 `ADMIN_PASSWORD`，不是 `ADMIN_TOKEN_SECRET`                        |
+| 登出后 Token 仍可使用               | 重启清空内存黑名单    | 重启后黑名单归零；生产环境建议接入 Redis 持久化                               |
+| `/api/health` 返回 503              | DB 连接断开           | 检查 MySQL 服务是否运行，查看 `backend/logs/error.log`                        |
+| 存档读取返回 404                    | save_key 不匹配       | 浏览器指纹变化（更换设备/隐身模式）会导致 save_key 变化                       |
+| 功能开关保存后前端未生效            | 缓存未刷新            | 刷新页面，settings 会在启动时重新拉取                                         |
+| 编辑器无法输入内容                  | ref 绑定失败          | 确认 `useCodeMirror` 返回值已解构，模板中使用顶层变量名绑定 ref               |
+| `npm run dev` 报找不到 concurrently | 根目录依赖未装        | 在根目录执行 `npm install`                                                    |
+| 首页分页不显示 / 排序无效           | store 结构不匹配      | 确认 `stores/games.ts` 中 `pagination` 含 `page` 和 `pages` 字段              |
+| 404 页面未生效                      | 路由顺序错误          | 确认 `router/index.ts` 中 `/:pathMatch(.*)*` 路由放在最后                     |
+| 存储面板数据不刷新                  | 未调用 refresh        | 存储面板在每次打开时自动刷新，若数据异常可关闭后重新打开                      |
 
 ---
 

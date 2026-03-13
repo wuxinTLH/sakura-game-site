@@ -60,7 +60,7 @@
             <!-- 游戏画布 -->
             <div class="game-stage" ref="stageRef">
                 <div class="stage-inner" :class="{ fullscreen: isFullscreen }">
-                    <iframe ref="iframeRef" class="game-iframe" sandbox="allow-scripts allow-same-origin"
+                    <iframe ref="iframeRef" class="game-iframe" sandbox="allow-scripts allow-same-origin allow-modals"
                         :srcdoc="game.game_code" frameborder="0" allowfullscreen title="game" @load="onIframeLoad" />
                     <!-- 全屏关闭按钮 -->
                     <button v-if="isFullscreen" class="fs-close-btn" @click="toggleFullscreen">✕ 退出全屏</button>
