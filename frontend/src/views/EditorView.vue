@@ -30,9 +30,17 @@
                     {{ currentTheme === 'dark' ? '☀️ 亮色' : '🌙 暗色' }}
                 </button>
                 <div class="topbar-divider"></div>
-                <!-- ★ 资源管理器入口按钮 -->
-                <button class="btn-icon-text btn-asset" @click="assetOpen = true" title="资源管理器（图片 / 音频 / JSON）">🗂
-                    资源</button>
+
+                <!-- ★ 资源管理器入口按钮（本地模式）
+                     右侧显示本地资源数量角标，直观感知当前资源库状态 -->
+                <button class="btn-icon-text btn-asset" @click="assetOpen = true"
+                    title="本地资源库（图片 / 音频 / JSON，存储在浏览器本地）">
+                    🗂 资源
+                    <span v-if="localAssetStore.assets.length > 0" class="asset-badge">
+                        {{ localAssetStore.assets.length }}
+                    </span>
+                </button>
+
                 <div class="topbar-divider"></div>
                 <button class="btn-icon-text" @click="clearCode" title="清空">🗑 清空</button>
                 <button class="btn-save" @click="openSaveModal" :disabled="!hasCode" title="保存 Ctrl+S">
@@ -87,7 +95,7 @@
             <div class="toolbar-group">
                 <span class="toolbar-label">模板：</span>
                 <button v-for="tpl in templates" :key="tpl.name" class="btn-tpl" @click="applyTemplate(tpl)">{{ tpl.name
-                    }}</button>
+                }}</button>
             </div>
             <div class="toolbar-group toolbar-shortcuts">
                 <span class="toolbar-label">快捷键：</span>
@@ -127,12 +135,17 @@
             </div>
         </div>
 
-        <!-- ★ 资源管理器浮层 ─────────────────────────────────────────
-             编辑器里的本地草稿没有服务端 gameId，因此传 :game-id="null"。
-             资源管理器只显示全部公共资源（s_g_assets.game_id IS NULL）。
-             点击「插入」后，代码片段会插入到 CodeMirror 光标位置。
-        ──────────────────────────────────────────────────────────── -->
-        <AssetManager v-model:open="assetOpen" :game-id="null" @insert="onAssetInsert" />
+        <!-- ★ 资源管理器浮层（本地模式）
+             ─────────────────────────────────────────────────────────────
+             mode="local"  → 资源存入 localStorage（sakura_local_assets），
+                             完全离线，无需登录，无需后端。
+             单文件 ≤ 2MB，本地总量软上限 20MB。
+             点击「插入」后，代码片段精确插入到 CodeMirror 光标位置。
+             ─────────────────────────────────────────────────────────────
+             原版传 :game-id="null" 连接云端公共资源库（需后端），
+             现改为 mode="local"，去掉 game-id，完全使用本地存储。
+        -->
+        <AssetManager mode="local" v-model:open="assetOpen" @insert="onAssetInsert" />
 
     </div>
 </template>
@@ -142,11 +155,11 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLocalGamesStore } from '@/stores/localGames'
 import { useCodeMirror, type EditorTheme, type EditorLang } from '@/composables/useCodeMirror'
-// ★ 新增导入
 import AssetManager from '@/components/AssetManager.vue'
-import type { Asset } from '@/api/assets'
+import { useLocalAssetsStore, type LocalAsset } from '@/stores/localAssets'
 
 const store = useLocalGamesStore()
+const localAssetStore = useLocalAssetsStore()   // ★ 本地资源 Store（用于顶栏角标）
 const route = useRoute()
 
 // ── CodeMirror 解构 ───────────────────────────────────────────────
@@ -429,36 +442,43 @@ onUnmounted(() => {
 })
 
 // ══════════════════════════════════════════════════════════════════
-// ★ 资源管理器
+// ★ 本地资源管理器
 // ──────────────────────────────────────────────────────────────────
-// 编辑器处于本地草稿模式，没有服务端 gameId，固定传 null，
-// 资源管理器将展示全部公共资源（s_g_assets.game_id IS NULL）。
+// 与原版的区别：
+//   原版：AssetManager 传 :game-id="null"
+//         → mode 默认 "cloud"，连接后端 /api/assets（需登录）
+//         → 资源存入数据库 s_g_assets，game_id = NULL（公共资源）
 //
-// 插入策略（三级降级）：
-//   Level 1 — useCodeMirror 若额外暴露了 editorView ref，直接 dispatch
-//   Level 2 — 通过 DOM 找 .cm-editor 上 CodeMirror 挂载的私有属性拿实例
-//   Level 3 — 兜底：getValue() + 字符串拼接 + setValue()，追加到末尾
+//   现版：AssetManager 传 mode="local"，不传 game-id
+//         → 资源用 FileReader 读取为 Base64 Data URI
+//         → 存入 localStorage 的 sakura_local_assets 键
+//         → 完全离线，无需后端，无需登录
+//         → 单文件 ≤ 2MB，总量软上限 20MB
+//
+// 插入策略（三级降级，与原版相同）：
+//   Level 1 — useCodeMirror 暴露了 editorView ref → dispatch 精确插入
+//   Level 2 — DOM 上 .cm-editor.cmView 私有属性 → dispatch 精确插入
+//   Level 3 — getValue() + 字符串拼接 + setValue() → 追加到末尾
 // ══════════════════════════════════════════════════════════════════
 
 const assetOpen = ref(false)
 
-function onAssetInsert({ snippet }: { snippet: string; asset: Asset }) {
+// ★ 改动：参数类型从 Asset（云端）改为 LocalAsset（本地）
+function onAssetInsert({ snippet }: { snippet: string; asset: LocalAsset }) {
     // ── Level 1：composable 若暴露了 EditorView 实例直接用 ────────
-    // （若 useCodeMirror 未导出 editorView，此处 ts-ignore 跳过）
     // @ts-ignore
     const exposedView = typeof editorView !== 'undefined' ? editorView?.value : null
 
     // ── Level 2：从 DOM 上读取 CodeMirror 挂载的实例 ─────────────
     const cmEl = (editorContainer.value as HTMLElement | null)
         ?.querySelector('.cm-editor') as HTMLElement | null
-    // CodeMirror 6 将 EditorView 实例挂载在 DOM 的 `cmView` 属性上
     // @ts-ignore
     const domView = cmEl?.cmView ?? null
 
     const view = exposedView ?? domView
 
     if (view && typeof view.dispatch === 'function') {
-        // 有实例：精确插入到当前选区/光标位置
+        // 精确插入到当前选区/光标位置
         const { from, to } = view.state.selection.main
         view.dispatch({
             changes: { from, to, insert: snippet },
@@ -640,12 +660,30 @@ function onAssetInsert({ snippet }: { snippet: string; asset: Asset }) {
     color: var(--sakura-300, #f9b8cc) !important;
     border-color: #3d2535 !important;
     background: #1e1228 !important;
+    position: relative;
 }
 
 .btn-asset:hover:not(:disabled) {
     background: #2a1a38 !important;
     color: var(--sakura-200, #fcd5e4) !important;
     border-color: var(--sakura-500, #e87da0) !important;
+}
+
+/* ★ 资源数量角标 */
+.asset-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--sakura-500, #e87da0);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-left: 2px;
 }
 
 .sel-lang {

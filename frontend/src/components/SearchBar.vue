@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
 }>(), {
     modelValue: '',
     placeholder: '搜索游戏名称、介绍、标签…',
-    tags: () => ['益智', '经典', '休闲', '策略', '数字', '动作'],
+    tags: () => ['益智', '经典', '休闲', '策略', '数字', '动作', '文字', '冒险', 'FPS',],
     debounce: 350,
 })
 

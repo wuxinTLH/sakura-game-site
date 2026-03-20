@@ -71,7 +71,7 @@
             </div>
 
             <!-- ── 页码分页 ───────────────────────────────────────────── -->
-            <div class="pagination" v-if="store.pagination.pages > 1">
+            <div class="pagination" v-if="store.pagination.totalPages > 1">
                 <!-- 上一页 -->
                 <button class="page-btn" :disabled="store.pagination.page <= 1"
                     @click="goPage(store.pagination.page - 1)" title="上一页">‹</button>
@@ -84,12 +84,12 @@
                 </template>
 
                 <!-- 下一页 -->
-                <button class="page-btn" :disabled="store.pagination.page >= store.pagination.pages"
+                <button class="page-btn" :disabled="store.pagination.page >= store.pagination.totalPages"
                     @click="goPage(store.pagination.page + 1)" title="下一页">›</button>
             </div>
 
             <!-- 全部加载完（单页时显示） -->
-            <p class="list-end" v-if="store.pagination.pages <= 1 && store.list.length > 0 && !store.loading">
+            <p class="list-end" v-if="store.pagination.totalPages <= 1 && store.list.length > 0 && !store.loading">
                 ── 已加载全部 {{ store.pagination.total }} 款游戏 ──
             </p>
 
@@ -157,7 +157,7 @@ function goPage(p: number) {
 
 // ── 页码范围计算（最多显示 7 个，超出省略） ───────────────────────
 const pageRange = computed<(number | '…')[]>(() => {
-    const total = store.pagination.pages
+    const total = store.pagination.totalPages
     const cur = store.pagination.page
     if (!total || total <= 1) return []
     if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)

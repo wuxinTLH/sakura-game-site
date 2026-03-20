@@ -49,6 +49,12 @@ const router = createRouter({
             meta: { title: '在线游戏管理 · 桜', requiresAdmin: true },
         },
         { path: '/:pathMatch(.*)*', redirect: '/' },
+        {
+            path: '/admin/assets',
+            name: 'admin-assets',
+            component: () => import('@/views/AdminAssetsView.vue'),
+            meta: { title: '素材管理 · 桜', requiresAdmin: true },
+        },
         // ── 404 兜底，必须放最后 ─────────────────────────────────────────
         {
             path: '/:pathMatch(.*)*',

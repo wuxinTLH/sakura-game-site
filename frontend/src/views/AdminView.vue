@@ -37,7 +37,7 @@
                 </div>
             </section>
 
-            <div class="admin-content">
+            <div class="admin-content" :class="{ 'admin-content-full': activeTab === 'assets' }">
 
                 <!-- Tab：功能开关 ─────────────────────────────────────── -->
                 <template v-if="activeTab === 'settings'">
@@ -99,11 +99,9 @@
                             </div>
                             <span class="games-total">共 {{ store.gamesPagination.total }} 款</span>
                         </div>
-
                         <div class="games-loading" v-if="store.loading">
                             <span>🌸</span> 加载中…
                         </div>
-
                         <div class="games-table-wrap" v-else>
                             <table class="games-table">
                                 <thead>
@@ -179,13 +177,11 @@
                                     </tr>
                                 </tbody>
                             </table>
-
                             <div class="games-empty" v-if="!store.games.length">
                                 <span>🎮</span>
                                 <p>没有找到游戏</p>
                             </div>
                         </div>
-
                         <div class="pagination" v-if="store.gamesPagination.totalPages > 1">
                             <button v-for="p in store.gamesPagination.totalPages" :key="p" class="page-btn"
                                 :class="{ active: p === store.gamesPagination.page }" @click="loadGamesPage(p)">
@@ -195,10 +191,9 @@
                     </div>
                 </template>
 
-                <!-- Tab: 数据统计 -->
+                <!-- Tab：数据统计 ──────────────────────────────────────── -->
                 <template v-if="activeTab === 'stats'">
                     <div class="stats-panel" v-if="store.stats">
-                        <!-- 数字卡片 -->
                         <div class="stats-cards">
                             <div class="stat-card">
                                 <div class="stat-num">{{ store.stats.total }}</div>
@@ -217,8 +212,6 @@
                                 <div class="stat-label">总游玩次数</div>
                             </div>
                         </div>
-
-                        <!-- 最热游戏 -->
                         <div class="stats-section">
                             <h4 class="stats-section-title">🔥 最热游戏 TOP 5</h4>
                             <div class="stats-rank">
@@ -230,8 +223,6 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- 最新入库 -->
                         <div class="stats-section">
                             <h4 class="stats-section-title">🆕 最新入库</h4>
                             <div class="stats-rank">
@@ -244,83 +235,92 @@
                             </div>
                         </div>
                     </div>
-
                     <div class="stats-loading" v-else>
                         <span>🌸</span> 加载中…
                     </div>
                 </template>
 
+                <!-- ★ Tab：素材管理 ────────────────────────────────────── -->
+                <!--
+                    新增 Tab：内嵌 AdminAssetsView 组件。
+                    admin-content-full 去掉 max-width 限制，让素材网格铺满页面宽度。
+                -->
+                <template v-if="activeTab === 'assets'">
+                    <AdminAssetsView />
+                </template>
+
                 <!-- Tab：接口文档 ─────────────────────────────────────── -->
+                <!--
+                    改动：原版通过 getApiList() 从后端拉取 apiDoc，
+                    现改为前端硬编码，完整覆盖所有接口（含新增的资源管理器接口），
+                    不再依赖后端接口文档数据，离线也能查看。
+                    渲染结构与原版完全兼容（ApiGroup / ApiItem 类型不变）。
+                -->
                 <template v-if="activeTab === 'api'">
                     <div class="api-panel">
-
-                        <div class="api-loading" v-if="apiLoading">
-                            <span>🌸</span> 加载中…
+                        <div class="api-header-card">
+                            <div class="api-header-left">
+                                <h3 class="api-doc-title">桜游戏屋 接口文档</h3>
+                                <span class="api-version">v2.0</span>
+                            </div>
+                            <div class="api-header-right">
+                                <div class="api-base-url">
+                                    <span class="api-label">Base URL</span>
+                                    <code>http://localhost:8802/api</code>
+                                </div>
+                                <div class="api-auth-note">
+                                    <span class="api-label">认证方式</span>
+                                    <code>x-admin-token: &lt;token&gt;</code>
+                                </div>
+                            </div>
+                            <p class="api-note">
+                                标注「🔒 需要」的接口须在请求头携带 <code>x-admin-token</code>。
+                                Token 通过 <code>POST /api/admin/login</code> 获取，有效期 8 小时，登出后立即失效。
+                            </p>
                         </div>
 
-                        <template v-else-if="apiDoc">
-                            <div class="api-header-card">
-                                <div class="api-header-left">
-                                    <h3 class="api-doc-title">{{ apiDoc.title }}</h3>
-                                    <span class="api-version">v{{ apiDoc.version }}</span>
-                                </div>
-                                <div class="api-header-right">
-                                    <div class="api-base-url">
-                                        <span class="api-label">Base URL</span>
-                                        <code>{{ apiDoc.baseUrl }}</code>
-                                    </div>
-                                    <div class="api-auth-note">
-                                        <span class="api-label">认证方式</span>
-                                        <code>{{ apiDoc.authHeader }}: &lt;token&gt;</code>
-                                    </div>
-                                </div>
-                                <p class="api-note">{{ apiDoc.note }}</p>
+                        <div class="api-group" v-for="group in localApiDoc" :key="group.group">
+                            <div class="api-group-header">
+                                <span class="api-group-name">{{ group.group }}</span>
+                                <code class="api-group-base">{{ group.base }}</code>
+                                <span class="api-group-auth" v-if="group.auth">🔒 需要认证</span>
                             </div>
-
-                            <div class="api-group" v-for="group in apiDoc.routes" :key="group.group">
-                                <div class="api-group-header">
-                                    <span class="api-group-name">{{ group.group }}</span>
-                                    <code class="api-group-base">{{ group.base }}</code>
-                                    <span class="api-group-auth" v-if="group.auth">🔒 需要认证</span>
-                                </div>
-                                <div class="api-table-wrap">
-                                    <table class="api-table">
-                                        <thead>
-                                            <tr>
-                                                <th>方法</th>
-                                                <th>路径</th>
-                                                <th>说明</th>
-                                                <th>参数</th>
-                                                <th>认证</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr v-for="item in group.items" :key="item.path + item.method">
-                                                <td>
-                                                    <span class="method-badge" :class="item.method.toLowerCase()">
-                                                        {{ item.method }}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <code class="api-path">{{ group.base }}{{ item.path }}</code>
-                                                </td>
-                                                <td class="api-desc">{{ item.desc }}</td>
-                                                <td class="api-params">
-                                                    <span v-if="item.params === '-'" class="params-none">—</span>
-                                                    <span v-else>{{ item.params }}</span>
-                                                </td>
-                                                <td>
-                                                    <span class="auth-badge" :class="item.auth ? 'need' : 'open'">
-                                                        {{ item.auth ? '🔒 需要' : '🌐 公开' }}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
+                            <div class="api-table-wrap">
+                                <table class="api-table">
+                                    <thead>
+                                        <tr>
+                                            <th>方法</th>
+                                            <th>路径</th>
+                                            <th>说明</th>
+                                            <th>参数</th>
+                                            <th>认证</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="item in group.items" :key="item.path + item.method">
+                                            <td>
+                                                <span class="method-badge" :class="item.method.toLowerCase()">
+                                                    {{ item.method }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <code class="api-path">{{ group.base }}{{ item.path }}</code>
+                                            </td>
+                                            <td class="api-desc">{{ item.desc }}</td>
+                                            <td class="api-params">
+                                                <span v-if="item.params === '-'" class="params-none">—</span>
+                                                <span v-else>{{ item.params }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="auth-badge" :class="item.auth ? 'need' : 'open'">
+                                                    {{ item.auth ? '🔒 需要' : '🌐 公开' }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
-                        </template>
-
+                        </div>
                     </div>
                 </template>
 
@@ -347,25 +347,29 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { useAdminStore, type SiteSettings, type AdminGame } from '@/stores/admin'
-import { getApiList } from '@/api/admin'
+// ★ 新增：素材管理页面组件
+import AdminAssetsView from '@/views/AdminAssetsView.vue'
 
 const store = useAdminStore()
 
-// ── 标签页 ────────────────────────────────────────────────────────
+// ── 标签页（★ 新增 assets Tab）────────────────────────────────────
 const tabs = [
     { value: 'settings' as const, label: '🎛 功能开关' },
     { value: 'games' as const, label: '🎮 游戏管理' },
     { value: 'stats' as const, label: '📊 数据统计' },
+    { value: 'assets' as const, label: '🗂 素材管理' },   // ★ 新增
     { value: 'api' as const, label: '📋 接口文档' },
 ]
-type TabValue = 'settings' | 'games' | 'stats' | 'api'
+
+type TabValue = 'settings' | 'games' | 'stats' | 'assets' | 'api'
+
 const activeTab = ref<TabValue>('settings')
 
 function switchTab(tab: TabValue) {
     activeTab.value = tab
     if (tab === 'games' && !store.games.length) store.loadGames()
     if (tab === 'stats') store.loadStats()
-    if (tab === 'api') loadApiList()
+    // assets / api Tab 不再需要异步加载（素材管理组件自己初始化，接口文档已硬编码）
 }
 
 // ── 登录 ──────────────────────────────────────────────────────────
@@ -444,7 +448,6 @@ const editForm = reactive({ name: '', tags: '', author: '', sort_order: 0 })
 const deleteTarget = ref<AdminGame | null>(null)
 
 let searchTimer: ReturnType<typeof setTimeout>
-
 function onGameSearch() {
     clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
@@ -477,9 +480,7 @@ async function confirmEdit(id: number) {
     }
 }
 
-function openDelete(game: AdminGame) {
-    deleteTarget.value = game
-}
+function openDelete(game: AdminGame) { deleteTarget.value = game }
 
 async function confirmDelete() {
     if (!deleteTarget.value) return
@@ -499,7 +500,10 @@ async function toggleGame(game: AdminGame) {
     }
 }
 
-// ── 接口文档 ──────────────────────────────────────────────────────
+// ── 接口文档（★ 改为前端硬编码，完整覆盖所有接口）─────────────────
+// 原版从 getApiList() 拉取后端数据渲染，但后端接口文档未包含资源管理器接口，
+// 且离线状态下无法查看。现改为硬编码，与原版 ApiGroup/ApiItem 结构完全兼容。
+
 interface ApiItem {
     method: string
     path: string
@@ -513,30 +517,73 @@ interface ApiGroup {
     auth: boolean
     items: ApiItem[]
 }
-interface ApiDoc {
-    title: string
-    version: string
-    baseUrl: string
-    authHeader: string
-    note: string
-    routes: ApiGroup[]
-}
 
-const apiDoc = ref<ApiDoc | null>(null)
-const apiLoading = ref(false)
-
-async function loadApiList() {
-    if (apiDoc.value) return
-    apiLoading.value = true
-    try {
-        const res = await getApiList()
-        apiDoc.value = res.data
-    } catch (e: any) {
-        alert('接口文档加载失败：' + e.message)
-    } finally {
-        apiLoading.value = false
-    }
-}
+const localApiDoc: ApiGroup[] = [
+    // ── 健康检查 ──────────────────────────────────────────────
+    {
+        group: '🏥 健康检查', base: '/api', auth: false,
+        items: [
+            { method: 'GET', path: '/health', auth: false, desc: '服务健康检查，返回 DB 实际连接状态及运行时间', params: '-' },
+        ],
+    },
+    // ── 游戏接口 ──────────────────────────────────────────────
+    {
+        group: '🎮 游戏接口', base: '/api/games', auth: false,
+        items: [
+            { method: 'GET', path: '', auth: false, desc: '游戏列表（分页 + 搜索 + 标签 + 排序）', params: 'search, tags, page, limit, sort(order/newest/hottest)' },
+            { method: 'GET', path: '/:id', auth: false, desc: '游戏详情（含完整 game_code）', params: '-' },
+            { method: 'POST', path: '', auth: true, desc: '新增游戏', params: 'name*, game_code*, description, tags, author, image_url, sort_order, game_type' },
+            { method: 'PUT', path: '/:id', auth: true, desc: '更新游戏（字段全可选）', params: 'name, game_code, description, tags, author, image_url, sort_order' },
+            { method: 'DELETE', path: '/:id', auth: true, desc: '下架游戏（软删除，is_active=0）', params: '-' },
+            { method: 'POST', path: '/:id/play', auth: false, desc: '记录游玩次数（play_count + 1）', params: '-' },
+        ],
+    },
+    // ── 存档接口 ──────────────────────────────────────────────
+    {
+        group: '💾 存档接口', base: '/api/saves', auth: false,
+        items: [
+            { method: 'GET', path: '/:gameId', auth: false, desc: '获取某游戏所有存档槽（不含存档数据本体）', params: 'save_key' },
+            { method: 'GET', path: '/:gameId/:slot', auth: false, desc: '读取单个存档槽（含完整 save_data）', params: 'save_key' },
+            { method: 'POST', path: '/:gameId/:slot', auth: false, desc: '写入/覆盖存档（slot 范围 1~5，自动 UPSERT）', params: 'save_key*, save_data*(≤500KB), save_name, play_time' },
+            { method: 'DELETE', path: '/:gameId/:slot', auth: false, desc: '删除存档', params: 'save_key' },
+        ],
+    },
+    // ── 上传接口 ──────────────────────────────────────────────
+    {
+        group: '📤 上传接口', base: '/api/upload', auth: true,
+        items: [
+            { method: 'POST', path: '/game', auth: true, desc: '上传游戏文件（.html/.vue/.ts，≤10MB，勿手动设 Content-Type）', params: 'file*, name*, description, tags, author, sort_order' },
+        ],
+    },
+    // ── 资源管理器接口（★ 新增）──────────────────────────────
+    {
+        group: '🗂 资源管理器接口', base: '/api/assets', auth: false,
+        items: [
+            { method: 'GET', path: '/quota', auth: false, desc: '全站云端资源用量与上限（used/limit/pct）', params: '-' },
+            { method: 'GET', path: '/game/:gameId', auth: false, desc: '获取游戏可用资源（游戏专属 + 公共资源）', params: '-' },
+            { method: 'GET', path: '', auth: false, desc: '资源列表（分页，不含 data 字段）', params: 'type(image/audio/json/text/other), game_id("null"=仅公共), page, limit' },
+            { method: 'GET', path: '/:id', auth: false, desc: '单个资源详情（含 data_uri，可直接嵌入 HTML）', params: '-' },
+            { method: 'POST', path: '', auth: true, desc: '上传资源文件（multipart，≤2MB，见支持的 MIME 类型）', params: 'file*, game_id("null"=公共资源)' },
+            { method: 'DELETE', path: '/:id', auth: true, desc: '删除资源（不会自动移除已嵌入游戏代码的引用）', params: '-' },
+        ],
+    },
+    // ── 管理员接口 ────────────────────────────────────────────
+    {
+        group: '🔐 管理员接口', base: '/api/admin', auth: true,
+        items: [
+            { method: 'POST', path: '/login', auth: false, desc: '管理员登录，返回 JWT token（有效期 8 小时）', params: 'password*' },
+            { method: 'POST', path: '/logout', auth: true, desc: '登出（token 加入黑名单立即失效）', params: '-' },
+            { method: 'GET', path: '/settings', auth: false, desc: '获取站点配置（公开）', params: '-' },
+            { method: 'PUT', path: '/settings', auth: true, desc: '更新站点配置', params: 'key*(editor_enabled/upload_enabled), value*("1"/"0")' },
+            { method: 'GET', path: '/games', auth: true, desc: '管理游戏列表（含下架，支持搜索/状态/排序筛选）', params: 'search, status(active/inactive), sort, page, limit' },
+            { method: 'PUT', path: '/games/:id', auth: true, desc: '编辑游戏（名称/描述/标签/作者/封面/权重/代码，全可选）', params: 'name, description, tags, author, image_url, sort_order, game_code' },
+            { method: 'DELETE', path: '/games/:id', auth: true, desc: '永久删除游戏（不可恢复）', params: '-' },
+            { method: 'PUT', path: '/games/:id/toggle', auth: true, desc: '切换游戏上下架（is_active 取反）', params: '-' },
+            { method: 'GET', path: '/stats', auth: true, desc: '数据统计（总数/游玩数/最热TOP5/最新入库/资源数量）', params: '-' },
+            { method: 'GET', path: '/api-list', auth: true, desc: '获取全部接口列表（原版接口文档数据源）', params: '-' },
+        ],
+    },
+]
 </script>
 
 <style scoped>
@@ -636,6 +683,7 @@ async function loadApiList() {
     font-weight: 700;
     font-size: 1rem;
     transition: all 0.2s;
+    border: none;
 }
 
 .btn-login:hover:not(:disabled) {
@@ -678,6 +726,7 @@ async function loadApiList() {
 .hero-tabs {
     display: flex;
     gap: 4px;
+    flex-wrap: wrap;
 }
 
 .hero-tab {
@@ -726,6 +775,12 @@ async function loadApiList() {
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+/* ★ 素材管理 Tab 不限制宽度，让网格铺满 */
+.admin-content-full {
+    max-width: 100%;
+    padding: 0;
 }
 
 /* ── 开关卡片 ─────────────────────────────────────────────────── */
@@ -868,6 +923,7 @@ async function loadApiList() {
     font-weight: 700;
     font-size: 0.88rem;
     transition: all 0.2s;
+    border: none;
 }
 
 .btn-save:hover:not(:disabled) {
@@ -1002,32 +1058,26 @@ async function loadApiList() {
 .games-table th {
     padding: 10px 12px;
     text-align: left;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 700;
     color: var(--ink-400);
     border-bottom: 2px solid var(--border);
     white-space: nowrap;
-    background: var(--sakura-100);
 }
 
 .games-table td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
-    color: var(--ink-900);
 }
 
 .games-table tr.inactive td {
     opacity: 0.5;
 }
 
-.games-table tr:hover td {
-    background: var(--sakura-100);
-}
-
 .td-id {
-    width: 48px;
     color: var(--ink-400);
-    font-size: 0.78rem;
+    font-size: 0.75rem;
 }
 
 .td-name {
@@ -1036,150 +1086,123 @@ async function loadApiList() {
 
 .game-name-cell {
     font-weight: 600;
+    color: var(--ink-900);
 }
 
 .game-desc-cell {
     font-size: 0.75rem;
     color: var(--ink-400);
     margin-top: 2px;
-    white-space: nowrap;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 200px;
+    white-space: nowrap;
 }
 
 .td-tags {
     min-width: 100px;
 }
 
-.td-author {
-    white-space: nowrap;
-}
-
-.td-count {
-    text-align: center;
-    white-space: nowrap;
-}
-
-.td-sort {
-    text-align: center;
-    width: 60px;
-}
-
-.td-status {
-    white-space: nowrap;
-    text-align: center;
-}
-
-.td-actions {
-    white-space: nowrap;
-}
-
 .tag {
     display: inline-block;
-    font-size: 0.65rem;
-    padding: 1px 6px;
+    padding: 2px 7px;
     border-radius: 10px;
-    background: var(--sakura-100);
+    background: var(--sakura-50, #fff0f5);
     color: var(--sakura-600);
-    border: 1px solid var(--sakura-200);
-    margin: 1px;
+    font-size: 0.72rem;
+    margin: 2px 2px 2px 0;
+}
+
+.td-count,
+.td-sort {
+    text-align: center;
+    white-space: nowrap;
 }
 
 .status-dot {
     display: inline-block;
     padding: 3px 10px;
     border-radius: 20px;
-    font-size: 0.72rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 700;
 }
 
 .status-dot.on {
     background: #e8fdf0;
     color: #2e7d4f;
-    border: 1px solid #b2dfcc;
 }
 
 .status-dot.off {
     background: #fff0f0;
     color: #c0392b;
-    border: 1px solid #f5c6cb;
 }
 
-.inline-input {
-    width: 100%;
-    padding: 4px 8px;
-    border: 1.5px solid var(--sakura-300);
-    border-radius: 6px;
-    font-size: 0.82rem;
-    outline: none;
-    background: var(--bg);
-    color: var(--ink-900);
-    font-family: var(--font-body);
-}
-
-.inline-input.w60 {
-    width: 60px;
+.td-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
 }
 
 .act-btn {
     padding: 4px 8px;
     border-radius: 6px;
-    font-size: 0.85rem;
-    margin-right: 4px;
-    transition: all 0.15s;
-    border: 1px solid transparent;
+    font-size: 0.8rem;
+    border: 1px solid var(--border);
+    background: none;
     cursor: pointer;
+    transition: all 0.15s;
 }
 
-.act-btn.edit {
-    background: var(--sakura-100);
-    border-color: var(--sakura-200);
+.act-btn.save:hover {
+    background: #e8fdf0;
+    border-color: #b2dfcc;
+}
+
+.act-btn.cancel:hover {
+    background: #fff0f0;
+    border-color: #f5c6cb;
 }
 
 .act-btn.edit:hover {
-    background: var(--sakura-200);
-}
-
-.act-btn.toggle {
-    background: #e8f4fd;
-    border-color: #b3d9f5;
+    background: var(--sakura-50, #fff0f5);
+    border-color: var(--sakura-300);
 }
 
 .act-btn.toggle:hover {
-    background: #c8e6f9;
-}
-
-.act-btn.delete {
-    background: #fff0f0;
-    border-color: #fcc;
+    background: #fef9e7;
+    border-color: #f0d060;
 }
 
 .act-btn.delete:hover {
-    background: #ffe0e0;
-}
-
-.act-btn.save {
-    background: #e8fdf0;
-    border-color: #b2dfcc;
-    color: #2e7d4f;
-}
-
-.act-btn.cancel {
     background: #fff0f0;
-    border-color: #fcc;
-    color: #c0392b;
+    border-color: #f5c6cb;
+}
+
+.inline-input {
+    padding: 4px 8px;
+    border: 1.5px solid var(--sakura-400);
+    border-radius: 6px;
+    font-size: 0.82rem;
+    outline: none;
+    width: 100%;
+    background: var(--bg);
+    color: var(--ink-900);
+    font-family: var(--font-body);
+}
+
+.w60 {
+    width: 60px;
 }
 
 .games-empty {
     text-align: center;
     padding: 40px;
     color: var(--ink-400);
-    font-size: 2rem;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    font-size: 1.5rem;
 }
 
 .games-empty p {
@@ -1190,30 +1213,177 @@ async function loadApiList() {
     display: flex;
     gap: 6px;
     justify-content: center;
-    margin-top: 16px;
+    margin-top: 20px;
+    flex-wrap: wrap;
 }
 
 .page-btn {
-    width: 34px;
+    min-width: 34px;
     height: 34px;
     border-radius: 8px;
-    font-size: 0.85rem;
-    background: var(--surface);
     border: 1.5px solid var(--border);
+    background: var(--surface);
     color: var(--ink-600);
-    transition: all 0.2s;
+    font-size: 0.85rem;
     cursor: pointer;
+    transition: all 0.15s;
 }
 
 .page-btn:hover {
-    border-color: var(--sakura-300);
-    color: var(--sakura-500);
+    border-color: var(--sakura-400);
+    color: var(--sakura-600);
 }
 
 .page-btn.active {
     background: var(--sakura-500);
     border-color: var(--sakura-500);
     color: #fff;
+}
+
+/* ── 数据统计 ─────────────────────────────────────────────────── */
+.stats-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.stats-loading {
+    text-align: center;
+    padding: 60px;
+    color: var(--ink-400);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 1.2rem;
+}
+
+.stats-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+    box-shadow: var(--shadow);
+}
+
+.stat-card.active {
+    border-color: #b2dfcc;
+    background: #f0fff8;
+}
+
+.stat-card.inactive {
+    border-color: #f5c6cb;
+    background: #fff5f5;
+}
+
+.stat-card.plays {
+    border-color: var(--sakura-200);
+    background: var(--sakura-50, #fff0f5);
+}
+
+.stat-num {
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--sakura-600);
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+    margin-top: 4px;
+}
+
+.stats-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+}
+
+.stats-section-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--ink-900);
+    margin-bottom: 14px;
+}
+
+.stats-rank {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.rank-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+
+.rank-no {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 800;
+    background: var(--sakura-100, #ffe0ee);
+    color: var(--sakura-600);
+    flex-shrink: 0;
+}
+
+.rank-no.top1 {
+    background: #fef9c3;
+    color: #92400e;
+}
+
+.rank-no.top2 {
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.rank-no.top3 {
+    background: #fed7aa;
+    color: #9a3412;
+}
+
+.rank-name {
+    flex: 1;
+    font-weight: 600;
+    color: var(--ink-900);
+}
+
+.rank-author {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+}
+
+.rank-count {
+    font-size: 0.82rem;
+    color: var(--sakura-500);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.rank-date {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+    white-space: nowrap;
 }
 
 /* ── 接口文档 ─────────────────────────────────────────────────── */
@@ -1223,86 +1393,81 @@ async function loadApiList() {
     gap: 16px;
 }
 
-.api-loading {
-    text-align: center;
-    padding: 60px;
-    color: var(--ink-400);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-
 .api-header-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 20px 24px;
+    padding: 24px;
     box-shadow: var(--shadow);
     display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 12px;
 }
 
 .api-header-left {
     display: flex;
     align-items: center;
-    gap: 10px;
-}
-
-.api-header-right {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: flex-end;
+    gap: 12px;
 }
 
 .api-doc-title {
-    font-size: 1.05rem;
-    font-weight: 700;
+    font-size: 1.1rem;
+    font-weight: 800;
     color: var(--ink-900);
 }
 
 .api-version {
-    font-size: 0.7rem;
-    padding: 2px 8px;
+    padding: 2px 10px;
     border-radius: 20px;
-    background: var(--sakura-100);
+    background: var(--sakura-100, #ffe0ee);
     color: var(--sakura-600);
-    border: 1px solid var(--sakura-200);
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 700;
 }
 
-.api-label {
-    font-size: 0.72rem;
-    color: var(--ink-400);
-    margin-right: 6px;
+.api-header-right {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
 }
 
 .api-base-url,
 .api-auth-note {
     display: flex;
     align-items: center;
+    gap: 8px;
     font-size: 0.82rem;
+}
+
+.api-label {
+    color: var(--ink-400);
+    font-weight: 600;
 }
 
 .api-base-url code,
 .api-auth-note code {
-    background: #0f0f1e;
-    color: #a0d4ff;
-    padding: 2px 10px;
+    background: #1a1a2e;
+    color: #e0d0ff;
+    padding: 3px 10px;
     border-radius: 6px;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
 }
 
 .api-note {
-    grid-column: 1 / -1;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     color: var(--ink-400);
-    background: var(--sakura-100);
-    padding: 8px 12px;
+    line-height: 1.6;
+    padding: 10px 14px;
+    background: var(--sakura-50, #fff5f8);
     border-radius: 8px;
-    margin: 0;
+    border-left: 3px solid var(--sakura-400);
+}
+
+.api-note code {
+    background: #1a1a2e;
+    color: #e0d0ff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.76rem;
 }
 
 .api-group {
@@ -1316,31 +1481,34 @@ async function loadApiList() {
 .api-group-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 20px;
-    background: linear-gradient(90deg, var(--sakura-100), var(--surface));
-    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    flex-wrap: wrap;
 }
 
 .api-group-name {
+    font-size: 0.92rem;
     font-weight: 700;
-    color: var(--ink-900);
-    font-size: 0.95rem;
+    color: #fff;
 }
 
 .api-group-base {
-    font-size: 0.78rem;
-    background: #0f0f1e;
-    color: #a0d4ff;
     padding: 2px 10px;
     border-radius: 6px;
+    background: #ffffff18;
+    color: #b0c4de;
+    font-size: 0.78rem;
 }
 
 .api-group-auth {
-    font-size: 0.72rem;
-    color: #c0392b;
-    font-weight: 500;
     margin-left: auto;
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: #fef3c720;
+    color: #fcd34d;
+    font-weight: 600;
 }
 
 .api-table-wrap {
@@ -1350,118 +1518,115 @@ async function loadApiList() {
 .api-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.82rem;
+    font-size: 0.83rem;
 }
 
 .api-table th {
-    padding: 9px 14px;
+    padding: 10px 14px;
     text-align: left;
-    font-weight: 600;
+    font-size: 0.72rem;
+    font-weight: 700;
     color: var(--ink-400);
     border-bottom: 1px solid var(--border);
-    background: var(--bg);
     white-space: nowrap;
+    background: var(--bg);
 }
 
 .api-table td {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
-    vertical-align: middle;
-    color: var(--ink-900);
+    vertical-align: top;
 }
 
 .api-table tr:last-child td {
     border-bottom: none;
 }
 
-.api-table tr:hover td {
-    background: var(--sakura-100);
-}
-
 .method-badge {
     display: inline-block;
-    padding: 3px 10px;
-    border-radius: 6px;
+    padding: 2px 8px;
+    border-radius: 5px;
     font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.5px;
+    font-weight: 800;
+    font-family: monospace;
+    white-space: nowrap;
 }
 
 .method-badge.get {
-    background: #e8f5e9;
-    color: #2e7d32;
-    border: 1px solid #c8e6c9;
+    background: #d1fae5;
+    color: #065f46;
 }
 
 .method-badge.post {
-    background: #e3f2fd;
-    color: #1565c0;
-    border: 1px solid #bbdefb;
+    background: #dbeafe;
+    color: #1e40af;
 }
 
 .method-badge.put {
-    background: #fff8e1;
-    color: #e65100;
-    border: 1px solid #ffe082;
+    background: #fef3c7;
+    color: #92400e;
 }
 
 .method-badge.delete {
-    background: #fce4ec;
-    color: #c62828;
-    border: 1px solid #f8bbd0;
+    background: #fee2e2;
+    color: #991b1b;
 }
 
 .api-path {
     font-size: 0.8rem;
-    background: var(--ink-100);
-    padding: 2px 8px;
+    background: var(--sakura-50, #fff5f8);
+    padding: 2px 7px;
     border-radius: 5px;
+    color: var(--ink-700);
+    white-space: nowrap;
 }
 
 .api-desc {
     color: var(--ink-600);
+    font-size: 0.82rem;
+    min-width: 180px;
 }
 
 .api-params {
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     color: var(--ink-400);
-    max-width: 220px;
+    max-width: 260px;
+    line-height: 1.5;
 }
 
 .params-none {
-    color: var(--ink-200);
+    color: var(--ink-300);
 }
 
 .auth-badge {
     display: inline-block;
-    padding: 3px 10px;
-    border-radius: 20px;
+    padding: 2px 8px;
+    border-radius: 10px;
     font-size: 0.72rem;
     font-weight: 600;
     white-space: nowrap;
 }
 
 .auth-badge.need {
-    background: #fff0f0;
-    color: #c0392b;
-    border: 1px solid #f5c6cb;
+    background: #fef3c7;
+    color: #92400e;
 }
 
 .auth-badge.open {
-    background: #e8fdf0;
-    color: #2e7d4f;
-    border: 1px solid #b2dfcc;
+    background: #d1fae5;
+    color: #065f46;
 }
 
 /* ── 删除弹窗 ─────────────────────────────────────────────────── */
 .modal-mask {
     position: fixed;
     inset: 0;
-    background: #0008;
+    background: #0007;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 9999;
+    padding: 24px;
 }
 
 .modal-box {
@@ -1469,13 +1634,12 @@ async function loadApiList() {
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 32px;
-    width: min(420px, 92vw);
-    box-shadow: 0 20px 60px #000a;
+    width: min(440px, 100%);
+    box-shadow: 0 20px 60px #0005;
+    text-align: center;
     display: flex;
     flex-direction: column;
-    align-items: center;
     gap: 10px;
-    text-align: center;
 }
 
 .modal-icon {
@@ -1505,32 +1669,36 @@ async function loadApiList() {
 .modal-actions {
     display: flex;
     gap: 10px;
+    justify-content: center;
     margin-top: 8px;
 }
 
 .btn-cancel {
-    padding: 9px 22px;
+    padding: 9px 24px;
     border-radius: 8px;
-    background: var(--ink-100);
-    color: var(--ink-600);
     border: 1.5px solid var(--border);
+    background: none;
+    color: var(--ink-500);
     font-size: 0.88rem;
     cursor: pointer;
+    transition: all 0.2s;
 }
 
 .btn-cancel:hover {
-    border-color: var(--sakura-300);
+    border-color: var(--ink-400);
+    color: var(--ink-700);
 }
 
 .btn-confirm-delete {
-    padding: 9px 22px;
+    padding: 9px 24px;
     border-radius: 8px;
     background: #c0392b;
     color: #fff;
     font-weight: 700;
     font-size: 0.88rem;
-    transition: all 0.2s;
+    border: none;
     cursor: pointer;
+    transition: all 0.2s;
 }
 
 .btn-confirm-delete:hover {
@@ -1538,179 +1706,32 @@ async function loadApiList() {
 }
 
 /* ── 响应式 ───────────────────────────────────────────────────── */
-@media (max-width: 600px) {
+@media (max-width: 640px) {
+    .admin-hero-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .hero-tabs {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    .hero-tab {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+
     .status-grid {
         grid-template-columns: 1fr;
     }
 
-    .login-card {
-        padding: 28px 20px;
-    }
-
-    .admin-hero-inner {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .api-header-card {
-        grid-template-columns: 1fr;
-    }
-
     .api-header-right {
-        align-items: flex-start;
-    }
-}
-
-/* ── 数据统计 ─────────────────────────────────────────────────── */
-.stats-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.stats-loading {
-    text-align: center;
-    padding: 60px;
-    color: var(--ink-400);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-
-.stats-cards {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-}
-
-.stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px 16px;
-    text-align: center;
-    box-shadow: var(--shadow);
-    transition: transform 0.2s;
-}
-
-.stat-card:hover {
-    transform: translateY(-2px);
-}
-
-.stat-num {
-    font-size: 2rem;
-    font-weight: 900;
-    color: var(--ink-900);
-    line-height: 1;
-}
-
-.stat-label {
-    font-size: 0.78rem;
-    color: var(--ink-400);
-    margin-top: 6px;
-}
-
-.stat-card.active .stat-num {
-    color: #2e7d4f;
-}
-
-.stat-card.inactive .stat-num {
-    color: #c0392b;
-}
-
-.stat-card.plays .stat-num {
-    color: var(--sakura-500);
-}
-
-.stats-section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
-    box-shadow: var(--shadow);
-}
-
-.stats-section-title {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--ink-900);
-    margin-bottom: 14px;
-}
-
-.stats-rank {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.rank-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    font-size: 0.85rem;
-}
-
-.rank-no {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: var(--ink-100);
-    color: var(--ink-400);
-    font-size: 0.75rem;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.rank-no.top1 {
-    background: #ffd700;
-    color: #7a5900;
-}
-
-.rank-no.top2 {
-    background: #c0c0c0;
-    color: #505050;
-}
-
-.rank-no.top3 {
-    background: #cd7f32;
-    color: #5a2a00;
-}
-
-.rank-name {
-    flex: 1;
-    font-weight: 600;
-    color: var(--ink-900);
-}
-
-.rank-author {
-    font-size: 0.78rem;
-    color: var(--ink-400);
-}
-
-.rank-count {
-    font-size: 0.82rem;
-    color: var(--sakura-500);
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.rank-date {
-    font-size: 0.78rem;
-    color: var(--ink-400);
-    white-space: nowrap;
-}
-
-@media (max-width: 640px) {
-    .stats-cards {
-        grid-template-columns: repeat(2, 1fr);
+        flex-direction: column;
+        gap: 8px;
     }
 }
 </style>

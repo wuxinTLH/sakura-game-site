@@ -81,3 +81,4 @@ package-lock.json
 **/*.pid.lock
 **/*.suo
 **/*.ntvs*
+frontend/vite.config.ts
