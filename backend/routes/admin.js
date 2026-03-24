@@ -214,6 +214,7 @@ router.post('/login', [
     const ok = await verifyPassword(password)
     if (!ok) {
         req.log.warn('管理员登录失败', { ip: req.ip })
+        watchdog.recordAuthFailure(req, '管理员密码错误')
         return res.status(401).json({ success: false, message: '密码错误' })
     }
     const token = generateToken()

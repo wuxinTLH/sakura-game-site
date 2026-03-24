@@ -12,6 +12,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 8801,
+    allowedHosts: ['sakuragames.syjx.space'],//按需修改
     proxy: {
       '/api': {
         target: 'http://localhost:8802',
@@ -22,6 +23,7 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: 8801,
+    allowedHosts: ['sakuragames.syjx.space'],//按需修改
     proxy: {
       '/api': {
         target: 'http://localhost:8802',

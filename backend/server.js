@@ -11,7 +11,18 @@ const gamesRouter = require('./routes/games')
 const uploadRouter = require('./routes/upload')
 const adminRouter = require('./routes/admin')
 
+//看门狗
+const watchdog = require('./watchdog/engine')
+
 const app = express()
+app.set('trust proxy',1)
+// WatchDog 初始化（异步加载封禁列表）
+watchdog.init().then(() => {
+    console.log('[WatchDog] 🐕 安全监控系统已启动')
+}).catch(e => {
+    console.error('[WatchDog] 初始化失败（降级运行）:', e.message)
+})
+
 const PORT = process.env.PORT || 8802
 
 // 登录限流
@@ -45,6 +56,21 @@ app.use(cors({
 }))
 
 app.use(express.json({ limit: '50mb' }))
+
+//watchdog
+app.use(watchdog.middleware())
+// 请求计数（用于健康快照的 req_per_min 统计）
+app.use((req, res, next) => {
+    watchdog.incrementReq()
+    res.on('finish', () => {
+        if (res.statusCode >= 400) watchdog.incrementErr()
+    })
+    next()
+})
+
+const watchdogRouter = require('./routes/watchdog')
+app.use('/api/watchdog', watchdogRouter)
+
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 app.use(globalLimiter)
 app.use(requestLogger)    // Winston 请求日志

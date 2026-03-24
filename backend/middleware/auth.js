@@ -1,5 +1,14 @@
 // middleware/auth.js
 require('dotenv').config()
+
+// 用 try/catch 包裹，watchdog 不存在时降级运行，不影响鉴权
+let watchdog
+try {
+    watchdog = require('../watchdog/engine')
+} catch (e) {
+    watchdog = { recordTokenAbuse: async () => {}, recordAuthFailure: async () => {} }
+}
+
 const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
 
@@ -47,6 +56,7 @@ function revokeToken(token) {
 function adminAuth(req, res, next) {
     const token = req.headers['x-admin-token']
     if (!token || !verifyToken(token)) {
+        watchdog.recordTokenAbuse(req, 'Token 无效或已过期')
         return res.status(401).json({ success: false, message: '未授权，请重新登录' })
     }
     req.adminToken = token

@@ -150,33 +150,35 @@
 
                             <!-- 元信息表格 -->
                             <table class="aa-meta-table">
-                                <tr>
-                                    <th>ID</th>
-                                    <td>#{{ detailAsset.id }}</td>
-                                </tr>
-                                <tr>
-                                    <th>文件名</th>
-                                    <td class="td-break">{{ detailAsset.name }}</td>
-                                </tr>
-                                <tr>
-                                    <th>MIME</th>
-                                    <td>{{ detailAsset.mime }}</td>
-                                </tr>
-                                <tr>
-                                    <th>大小</th>
-                                    <td>{{ formatSize(detailAsset.size) }}</td>
-                                </tr>
-                                <tr>
-                                    <th>范围</th>
-                                    <td>
-                                        <span v-if="detailAsset.game_id == null" class="aa-public-tag">公共资源</span>
-                                        <span v-else class="aa-game-tag">游戏 #{{ detailAsset.game_id }}</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>上传时间</th>
-                                    <td>{{ formatDateFull(detailAsset.created_at) }}</td>
-                                </tr>
+                                <tbody>
+                                    <tr>
+                                        <th>ID</th>
+                                        <td>#{{ detailAsset.id }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>文件名</th>
+                                        <td class="td-break">{{ detailAsset.name }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>MIME</th>
+                                        <td>{{ detailAsset.mime }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>大小</th>
+                                        <td>{{ formatSize(detailAsset.size) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>范围</th>
+                                        <td>
+                                            <span v-if="detailAsset.game_id == null" class="aa-public-tag">公共资源</span>
+                                            <span v-else class="aa-game-tag">游戏 #{{ detailAsset.game_id }}</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>上传时间</th>
+                                        <td>{{ formatDateFull(detailAsset.created_at) }}</td>
+                                    </tr>
+                                </tbody>
                             </table>
 
                             <!-- 引用代码 -->

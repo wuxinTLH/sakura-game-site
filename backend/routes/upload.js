@@ -143,6 +143,11 @@ router.post('/game',
                 return res.status(400).json({ success: false, message: '请上传文件' })
             }
 
+            const scanResult = await watchdog.scanUploadedFile(req, req.file)
+            if (!scanResult.safe) {
+                return res.status(400).json({ message: scanResult.reason })
+            }
+
             const {
                 name,
                 description = '',
