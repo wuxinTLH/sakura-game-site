@@ -14,6 +14,12 @@ const adminRouter = require('./routes/admin')
 //看门狗
 const watchdog = require('./watchdog/engine')
 
+//标签枚举 + 数据导出
+const tagsRouter   = require('./routes/tags')
+const exportRouter = require('./routes/export')
+
+
+
 const app = express()
 app.set('trust proxy',1)
 // WatchDog 初始化（异步加载封禁列表）
@@ -86,6 +92,8 @@ app.use('/api/upload', uploadRouter)
 app.use('/api/admin/login', loginLimiter)
 app.use('/api/admin', adminRouter)
 app.use('/api/saves', savesRouter)
+app.use('/api/tags',   tagsRouter)
+app.use('/api/export', exportRouter)
 app.use('/api/assets', assetsRouter)
 
 app.get('/api/health', async (_req, res) => {

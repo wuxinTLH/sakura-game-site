@@ -2,9 +2,47 @@
     <article class="game-card" @click="handleClick">
         <!-- 左：封面图 -->
         <div class="card-cover" @click.stop="handleClick">
-            <img v-if="game.image_url" :src="game.image_url" :alt="game.name" loading="lazy" @error="imgError = true" />
+            <!-- 有封面 URL 且未加载失败 -->
+            <img v-if="game.image_url && !imgError"
+                 :src="game.image_url"
+                 :alt="game.name"
+                 loading="lazy"
+                 @error="imgError = true" />
+            <!-- ★ 无封面或加载失败：默认桜主题 SVG（问题1） -->
             <div v-else class="cover-placeholder">
-                <span class="cover-emoji">🎮</span>
+                <svg viewBox="0 0 120 72" xmlns="http://www.w3.org/2000/svg" class="default-cover-svg">
+                    <defs>
+                        <linearGradient id="cardBg" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#ffe4ec"/>
+                            <stop offset="100%" stop-color="#ffd6e8"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="120" height="72" fill="url(#cardBg)"/>
+                    <!-- 中心樱花 -->
+                    <g transform="translate(60,34)">
+                        <ellipse cx="0" cy="-13" rx="5" ry="9" fill="#f48fb1" opacity=".85" transform="rotate(0)"/>
+                        <ellipse cx="0" cy="-13" rx="5" ry="9" fill="#f48fb1" opacity=".85" transform="rotate(72)"/>
+                        <ellipse cx="0" cy="-13" rx="5" ry="9" fill="#f48fb1" opacity=".85" transform="rotate(144)"/>
+                        <ellipse cx="0" cy="-13" rx="5" ry="9" fill="#f48fb1" opacity=".85" transform="rotate(216)"/>
+                        <ellipse cx="0" cy="-13" rx="5" ry="9" fill="#f48fb1" opacity=".85" transform="rotate(288)"/>
+                        <circle cx="0" cy="0" r="5" fill="#fff"/>
+                        <circle cx="0" cy="0" r="3" fill="#f8bbd0"/>
+                    </g>
+                    <!-- 小花瓣装饰 -->
+                    <g opacity=".4">
+                        <ellipse cx="16" cy="16" rx="3" ry="5" fill="#f48fb1" transform="rotate(-20,16,16)"/>
+                        <ellipse cx="104" cy="22" rx="3" ry="5" fill="#f48fb1" transform="rotate(25,104,22)"/>
+                        <ellipse cx="20" cy="56" rx="2.5" ry="4" fill="#f48fb1" transform="rotate(15,20,56)"/>
+                        <ellipse cx="100" cy="56" rx="3" ry="5" fill="#f48fb1" transform="rotate(-18,100,56)"/>
+                    </g>
+                    <!-- 游戏名截断文字 -->
+                    <text x="60" y="67"
+                          text-anchor="middle"
+                          font-family="sans-serif"
+                          font-size="8"
+                          fill="#c0396b"
+                          opacity=".7">{{ truncatedName }}</text>
+                </svg>
             </div>
             <!-- 游玩次数徽章 -->
             <span class="play-badge" v-if="game.play_count > 0">
@@ -41,7 +79,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { GameListItem } from '@/types/game'
 
-const props = defineProps<{ game: GameListItem }>()
+const props  = defineProps<{ game: GameListItem }>()
 const router = useRouter()
 const imgError = ref(false)
 
@@ -50,6 +88,12 @@ const tagList = computed(() =>
         ? props.game.tags.split(',').map(t => t.trim()).filter(Boolean).slice(0, 3)
         : []
 )
+
+// ★ SVG 内显示的截断名称（问题1）
+const truncatedName = computed(() => {
+    const n = props.game.name || ''
+    return n.length > 10 ? n.slice(0, 9) + '…' : n
+})
 
 function handleClick() {
     router.push({ name: 'game', params: { id: props.game.id } })
@@ -103,17 +147,21 @@ function formatCount(n: number) {
     transform: scale(1.06);
 }
 
+/* ★ 默认封面容器（问题1） */
 .cover-placeholder {
     width: 100%;
     height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, var(--sakura-100), var(--sakura-200));
 }
 
-.cover-emoji {
-    font-size: 2.2rem;
+.default-cover-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    transition: transform 0.4s ease;
+}
+
+.game-card:hover .default-cover-svg {
+    transform: scale(1.04);
 }
 
 .play-badge {

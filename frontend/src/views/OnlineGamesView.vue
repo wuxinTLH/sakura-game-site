@@ -47,7 +47,28 @@
                     <option :value="20">20条/页</option>
                     <option :value="50">50条/页</option>
                 </select>
+
+                <!-- ★ 数据导出按钮（问题7） -->
+                <div class="export-wrap" ref="exportWrapRef">
+                    <button class="btn-export" @click="exportMenuOpen = !exportMenuOpen">
+                        ⬇ 导出 ▾
+                    </button>
+                    <div v-if="exportMenuOpen" class="export-dropdown">
+                        <button @click="doExport('json')">📄 元数据 JSON</button>
+                        <button @click="doExport('csv')">📊 元数据 CSV（Excel）</button>
+                        <button @click="doExport('backup')">💾 完整备份（含代码）</button>
+                    </div>
+                </div>
             </div>
+        </div>
+
+        <!-- ★ 批量操作栏（问题5，选中后才显示） -->
+        <div v-if="selectedIds.size > 0" class="batch-bar">
+            <span class="batch-info">已选 <strong>{{ selectedIds.size }}</strong> 个游戏</span>
+            <button class="batch-btn batch-on"  @click="batchToggle(true)">⬆ 批量上架</button>
+            <button class="batch-btn batch-off" @click="batchToggle(false)">⬇ 批量下架</button>
+            <button class="batch-btn batch-del" @click="batchDelete">🗑 批量删除</button>
+            <button class="batch-btn batch-cancel" @click="selectedIds.clear()">✕ 取消选择</button>
         </div>
 
         <!-- 主体 -->
@@ -67,7 +88,16 @@
                 <table class="og-table">
                     <thead>
                         <tr>
+                            <!-- ★ 全选 checkbox（问题5） -->
+                            <th style="width:36px">
+                                <input type="checkbox"
+                                       :checked="allCurrentPageSelected"
+                                       :indeterminate="someSelected"
+                                       @change="toggleSelectAll" />
+                            </th>
                             <th style="width:48px">ID</th>
+                            <!-- ★ 封面列（问题1） -->
+                            <th style="width:80px">封面</th>
                             <th>游戏名称</th>
                             <th style="width:160px">标签</th>
                             <th style="width:80px">作者</th>
@@ -80,8 +110,25 @@
                     </thead>
                     <tbody>
                         <tr v-for="game in store.games" :key="game.id" class="og-row"
-                            :class="{ inactive: !game.is_active }">
+                            :class="{ inactive: !game.is_active, selected: selectedIds.has(game.id) }">
+                            <!-- ★ 行 checkbox（问题5） -->
+                            <td>
+                                <input type="checkbox"
+                                       :checked="selectedIds.has(game.id)"
+                                       @change="toggleSelect(game.id)" />
+                            </td>
                             <td class="td-id">{{ game.id }}</td>
+                            <!-- ★ 封面缩略图（问题1） -->
+                            <td class="td-cover">
+                                <div class="cover-thumb">
+                                    <img v-if="game.image_url && !thumbErrors.has(game.id)"
+                                         :src="game.image_url"
+                                         :alt="game.name"
+                                         class="thumb-img"
+                                         @error="thumbErrors.add(game.id)" />
+                                    <div v-else class="thumb-default">🌸</div>
+                                </div>
+                            </td>
                             <td class="td-name">
                                 <div class="game-name">{{ game.name }}</div>
                                 <div v-if="game.description" class="game-desc">{{ game.description }}</div>
@@ -102,7 +149,6 @@
                                 <button class="btn-act btn-preview" title="预览游戏" @click="openPreview(game)">👁</button>
                                 <button class="btn-act btn-edit" title="编辑" :disabled="loadingEditId === game.id"
                                     @click="openEdit(game)">
-                                    <!-- 点击后显示加载动画，防止重复点击 -->
                                     <span v-if="loadingEditId === game.id" class="btn-spin">⏳</span>
                                     <span v-else>✏️</span>
                                 </button>
@@ -139,7 +185,6 @@
                             <button class="modal-close" @click="closeEdit">✕</button>
                         </div>
 
-                        <!-- 弹窗内加载态：拉取 game_code 期间显示 -->
                         <div v-if="editLoading" class="edit-loading">
                             <span class="loading-spin">🌸</span>
                             <span>正在加载游戏数据…</span>
@@ -163,11 +208,25 @@
                                 </div>
 
                                 <div class="form-grid">
-                                    <div class="form-row">
-                                        <label class="form-label">标签</label>
-                                        <input v-model="editForm.tags" class="form-input" placeholder="逗号分隔，如：益智,休闲"
+                                    <!-- ★ 标签枚举选择器（问题6） -->
+                                    <div class="form-row form-row-full">
+                                        <label class="form-label">标签
+                                            <span class="label-hint">（点击快速选择，或直接编辑下方文本框）</span>
+                                        </label>
+                                        <div class="tag-enum-bar" v-if="allTags.length">
+                                            <button
+                                                v-for="tag in allTags"
+                                                :key="tag"
+                                                class="tag-enum-btn"
+                                                :class="{ selected: isTagSelected(tag) }"
+                                                @click="toggleTagEnum(tag)"
+                                                type="button">{{ tag }}</button>
+                                        </div>
+                                        <input v-model="editForm.tags" class="form-input"
+                                            placeholder="逗号分隔，如：益智,休闲"
                                             maxlength="500" />
                                     </div>
+
                                     <div class="form-row">
                                         <label class="form-label">作者</label>
                                         <input v-model="editForm.author" class="form-input" placeholder="作者名"
@@ -181,10 +240,42 @@
                                         <input v-model.number="editForm.sort_order" class="form-input" type="number"
                                             min="0" />
                                     </div>
+
+                                    <!-- ★ 封面图：支持上传文件 + URL（问题1） -->
                                     <div class="form-row">
-                                        <label class="form-label">封面图 URL</label>
+                                        <label class="form-label">封面图</label>
+                                        <div class="cover-edit-area">
+                                            <!-- 预览 -->
+                                            <div class="cover-preview-box">
+                                                <img v-if="editForm.image_url && !coverPreviewErr"
+                                                     :src="editForm.image_url"
+                                                     class="cover-preview-img"
+                                                     @error="coverPreviewErr = true"
+                                                     alt="封面预览" />
+                                                <div v-else class="cover-preview-empty">🌸</div>
+                                            </div>
+                                            <div class="cover-edit-controls">
+                                                <!-- 文件上传按钮 -->
+                                                <label class="btn-upload-cover">
+                                                    📁 上传图片
+                                                    <input type="file"
+                                                           accept="image/png,image/jpeg,image/gif,image/webp"
+                                                           class="hidden-file-input"
+                                                           @change="onCoverFileChange" />
+                                                </label>
+                                                <button v-if="editForm.image_url"
+                                                        class="btn-remove-cover"
+                                                        type="button"
+                                                        @click="editForm.image_url = ''; coverPreviewErr = false">
+                                                    移除
+                                                </button>
+                                                <p class="cover-hint">PNG/JPG/GIF/WebP，≤ 500KB</p>
+                                            </div>
+                                        </div>
+                                        <!-- URL 直接填写 -->
                                         <input v-model="editForm.image_url" class="form-input"
-                                            placeholder="https://… 或留空" />
+                                            placeholder="或直接粘贴图片 URL"
+                                            @input="coverPreviewErr = false" />
                                     </div>
                                 </div>
 
@@ -195,13 +286,11 @@
                                 </div>
 
                                 <div class="code-toolbar">
-                                    <!-- 修复核心：codeBytes 现在能正确显示，因为 editForm.game_code 已从详情接口获取 -->
                                     <div class="code-meta">
                                         <span class="code-bytes" :class="codeBytesClass">{{ codeBytes }}</span>
                                         <span class="code-lines">· {{ codeLines }} 行</span>
                                     </div>
                                     <div style="display:flex;gap:8px">
-                                        <!-- 资源管理器入口 -->
                                         <button class="btn-asset-mgr" @click="assetOpen = true" title="打开资源管理器">
                                             🗂 资源管理器
                                         </button>
@@ -240,7 +329,7 @@
             </Transition>
         </Teleport>
 
-        <!-- ── 预览弹窗 ───────────────────────────────────────────── -->
+        <!-- ── 预览弹窗（与原版保持一致）──────────────────────── -->
         <Teleport to="body">
             <Transition name="modal">
                 <div v-if="previewOpen" class="modal-overlay preview-overlay" @click.self="previewOpen = false">
@@ -248,7 +337,6 @@
                         <div class="preview-header">
                             <span class="modal-title">👁 预览：{{ previewData.name }}</span>
                             <div style="display:flex;gap:8px">
-                                <!-- 预览时同样需要加载 game_code，loading 期间禁用全屏 -->
                                 <span v-if="previewLoading" class="preview-loading-tip">加载中…</span>
                                 <button v-else class="btn-fullscreen" @click="openFullscreen">⛶ 全屏</button>
                                 <button class="modal-close" @click="previewOpen = false">✕</button>
@@ -271,25 +359,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue'
 import { useOnlineGamesStore } from '@/stores/onlineGames'
 import { adminUpdateGame, adminDeleteGame, adminToggleGame } from '@/api/admin'
 import { fetchGame } from '@/api/games'
+import { fetchTags } from '@/api/tags'
+import { exportGamesJson, exportGamesCsv, exportGamesBackup } from '@/api/export'
 import AssetManager from '@/components/AssetManager.vue'
 
 // ── Store ─────────────────────────────────────────────────────
 const store = useOnlineGamesStore()
 
-// ── 查询参数 ──────────────────────────────────────────────────
+// ── 查询参数（原版保持不变）──────────────────────────────────
 const query = ref({
     search: '',
     status: 'all' as 'all' | 'active' | 'inactive',
-    sort: 'newest' as 'newest' | 'hottest' | 'order',
-    limit: 20,
+    sort:   'newest' as 'newest' | 'hottest' | 'order',
+    limit:  20,
 })
 
 const statusFilters = [
-    { label: '全部', value: 'all' },
+    { label: '全部',   value: 'all' },
     { label: '上架中', value: 'active' },
     { label: '已下架', value: 'inactive' },
 ]
@@ -308,20 +398,28 @@ function setStatus(v: string) {
     loadGames(1)
 }
 
-// ── 加载列表 ──────────────────────────────────────────────────
+// ── 加载列表（原版保持不变）──────────────────────────────────
 async function loadGames(page = 1) {
+    selectedIds.clear()   // 翻页时清空选择
     await store.fetchGames({
         page,
-        limit: query.value.limit,
+        limit:  query.value.limit,
         search: query.value.search || undefined,
         status: query.value.status === 'all' ? undefined : query.value.status,
-        sort: query.value.sort,
+        sort:   query.value.sort,
     })
 }
 
-onMounted(() => loadGames(1))
+onMounted(() => {
+    loadGames(1)
+    // ★ 拉取标签枚举（问题6）
+    fetchTags().then(t => allTags.value = t).catch(() => {})
+    // 点击外部关闭导出菜单
+    document.addEventListener('click', onDocClick)
+})
+onUnmounted(() => document.removeEventListener('click', onDocClick))
 
-// ── 分页 ──────────────────────────────────────────────────────
+// ── 分页（原版保持不变）──────────────────────────────────────
 const pageList = computed(() => {
     const { page, pages } = store.pagination
     if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1)
@@ -333,7 +431,7 @@ const pageList = computed(() => {
     return list
 })
 
-// ── 工具 ──────────────────────────────────────────────────────
+// ── 工具（原版保持不变）──────────────────────────────────────
 function parseTags(tags: string): string[] {
     return tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []
 }
@@ -343,7 +441,7 @@ function formatDate(dt: string): string {
     return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-// ── 上下架 ────────────────────────────────────────────────────
+// ── 上下架（原版保持不变）────────────────────────────────────
 async function toggleGame(game: { id: number; name: string; is_active: number }) {
     const action = game.is_active ? '下架' : '上架'
     if (!confirm(`确认${action}游戏「${game.name}」？`)) return
@@ -355,7 +453,7 @@ async function toggleGame(game: { id: number; name: string; is_active: number })
     }
 }
 
-// ── 永久删除 ──────────────────────────────────────────────────
+// ── 永久删除（原版保持不变）──────────────────────────────────
 async function deleteGame(game: { id: number; name: string }) {
     if (!confirm(`确认永久删除游戏「${game.name}」？\n此操作不可恢复，存档数据也将一并清除。`)) return
     try {
@@ -367,42 +465,130 @@ async function deleteGame(game: { id: number; name: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 编辑弹窗
-// ─────────────────────────────────────────────────────────────
-// 【修复核心】
-//   列表接口 GET /api/admin/games 不返回 game_code（LONGTEXT 字段太大，
-//   列表查询只返回元数据），因此 game.game_code 始终为 undefined/空串，
-//   导致代码字节数显示 0B。
-//
-//   修复方案：openEdit 点击时，先调用 GET /api/games/:id（详情接口，
-//   返回完整字段含 game_code），拿到数据后再填充 editForm。
-//   期间显示 editLoading 状态，防止用户看到空表单。
+// ★ 问题5：批量操作
+// ═══════════════════════════════════════════════════════════════
+
+const selectedIds = reactive(new Set<number>())
+
+const allCurrentPageSelected = computed(() =>
+    store.games.length > 0 && store.games.every(g => selectedIds.has(g.id))
+)
+const someSelected = computed(() =>
+    store.games.some(g => selectedIds.has(g.id)) && !allCurrentPageSelected.value
+)
+
+function toggleSelect(id: number) {
+    if (selectedIds.has(id)) selectedIds.delete(id)
+    else selectedIds.add(id)
+}
+
+function toggleSelectAll(e: Event) {
+    if ((e.target as HTMLInputElement).checked) {
+        store.games.forEach(g => selectedIds.add(g.id))
+    } else {
+        selectedIds.clear()
+    }
+}
+
+async function batchToggle(active: boolean) {
+    const ids  = Array.from(selectedIds)
+    const verb = active ? '上架' : '下架'
+    if (!confirm(`确认批量${verb} ${ids.length} 个游戏？`)) return
+    let done = 0
+    for (const id of ids) {
+        try { await adminToggleGame(id); done++ } catch { /* skip */ }
+    }
+    alert(`已${verb} ${done} / ${ids.length} 个游戏`)
+    selectedIds.clear()
+    await loadGames(store.pagination.page)
+}
+
+async function batchDelete() {
+    const ids = Array.from(selectedIds)
+    if (!confirm(`确认永久删除 ${ids.length} 个游戏？\n此操作不可恢复！`)) return
+    let done = 0
+    for (const id of ids) {
+        try { await adminDeleteGame(id); done++ } catch { /* skip */ }
+    }
+    alert(`已删除 ${done} / ${ids.length} 个游戏`)
+    selectedIds.clear()
+    await loadGames(store.pagination.page)
+}
+
+// ★ 封面缩略图加载失败记录（问题1）
+const thumbErrors = reactive(new Set<number>())
+
+// ═══════════════════════════════════════════════════════════════
+// ★ 问题6：标签枚举
+// ═══════════════════════════════════════════════════════════════
+
+const allTags = ref<string[]>([])
+
+function isTagSelected(tag: string): boolean {
+    return parseTags(editForm.value.tags).includes(tag)
+}
+
+function toggleTagEnum(tag: string) {
+    const current = parseTags(editForm.value.tags)
+    const idx     = current.indexOf(tag)
+    if (idx === -1) current.push(tag)
+    else current.splice(idx, 1)
+    editForm.value.tags = current.join(',')
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ★ 问题7：数据导出
+// ═══════════════════════════════════════════════════════════════
+
+const exportMenuOpen = ref(false)
+const exportWrapRef  = ref<HTMLElement | null>(null)
+
+function onDocClick(e: MouseEvent) {
+    if (exportWrapRef.value && !exportWrapRef.value.contains(e.target as Node)) {
+        exportMenuOpen.value = false
+    }
+}
+
+async function doExport(type: 'json' | 'csv' | 'backup') {
+    exportMenuOpen.value = false
+    try {
+        if (type === 'json')   await exportGamesJson()
+        if (type === 'csv')    await exportGamesCsv()
+        if (type === 'backup') await exportGamesBackup()
+    } catch (e: any) {
+        alert(`导出失败：${e.message}\n请确认管理员登录状态。`)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 编辑弹窗（原版逻辑保留，新增封面上传 + 标签枚举联动）
 // ═══════════════════════════════════════════════════════════════
 
 interface EditForm {
-    id: number
-    name: string
+    id:          number
+    name:        string
     description: string
-    tags: string
-    author: string
-    sort_order: number
-    image_url: string
-    game_code: string
+    tags:        string
+    author:      string
+    sort_order:  number
+    image_url:   string
+    game_code:   string
 }
 
-const editOpen = ref(false)
-const editLoading = ref(false)   // ← 新增：拉取详情时的 loading 状态
-const loadingEditId = ref<number | null>(null)  // ← 新增：表格行按钮的 loading 标记
-const saving = ref(false)
-const showCode = ref(false)
-const saveStatus = ref('')
+const editOpen      = ref(false)
+const editLoading   = ref(false)
+const loadingEditId = ref<number | null>(null)
+const saving        = ref(false)
+const showCode      = ref(false)
+const saveStatus    = ref('')
+// ★ 封面预览状态（问题1）
+const coverPreviewErr = ref(false)
 
 const editForm = ref<EditForm>({
     id: 0, name: '', description: '', tags: '',
     author: '', sort_order: 0, image_url: '', game_code: '',
 })
 
-// 代码体积显示（修复后能正确计算，因为 game_code 已真实填充）
 const codeBytes = computed(() => {
     const bytes = new Blob([editForm.value.game_code]).size
     if (bytes === 0) return '0 B'
@@ -411,53 +597,43 @@ const codeBytes = computed(() => {
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 })
 
-// 代码体积颜色提示
 const codeBytesClass = computed(() => {
     const bytes = new Blob([editForm.value.game_code]).size
     if (bytes === 0) return 'bytes-empty'
-    if (bytes > 512 * 1024) return 'bytes-warn'   // > 512KB 警告
+    if (bytes > 512 * 1024) return 'bytes-warn'
     return 'bytes-ok'
 })
 
-// 代码行数统计
 const codeLines = computed(() =>
-    editForm.value.game_code
-        ? editForm.value.game_code.split('\n').length
-        : 0
+    editForm.value.game_code ? editForm.value.game_code.split('\n').length : 0
 )
 
-/**
- * openEdit：先用列表数据填充基本字段（让弹窗立即打开），
- * 同时异步请求详情接口获取 game_code，获取后更新表单。
- */
 async function openEdit(game: any) {
-    // 1. 先用列表已有数据填充（不含 game_code，先置空）
     editForm.value = {
-        id: game.id,
-        name: game.name ?? '',
+        id:          game.id,
+        name:        game.name        ?? '',
         description: game.description ?? '',
-        tags: game.tags ?? '',
-        author: game.author ?? '',
-        sort_order: game.sort_order ?? 0,
-        image_url: game.image_url ?? '',
-        game_code: '',   // 先置空，等详情接口返回后填充
+        tags:        game.tags        ?? '',
+        author:      game.author      ?? '',
+        sort_order:  game.sort_order  ?? 0,
+        image_url:   game.image_url   ?? '',
+        game_code:   '',
     }
-    showCode.value = false
-    saveStatus.value = ''
-    editLoading.value = true
+    showCode.value      = false
+    saveStatus.value    = ''
+    coverPreviewErr.value = false
+    editLoading.value   = true
     loadingEditId.value = game.id
-    editOpen.value = true
+    editOpen.value      = true
 
-    // 2. 异步拉取完整详情（含 game_code）
     try {
-        const res = await fetchGame(game.id)
-        // fetchGame 返回结构：{ data: { ...game } } 或直接 { ...game }
+        const res    = await fetchGame(game.id)
         const detail = res?.data ?? res
         editForm.value.game_code = detail.game_code ?? ''
     } catch (e: any) {
         saveStatus.value = `⚠️ 加载代码失败：${e.message}`
     } finally {
-        editLoading.value = false
+        editLoading.value   = false
         loadingEditId.value = null
     }
 }
@@ -471,17 +647,17 @@ async function saveEdit() {
         saveStatus.value = '⚠️ 游戏名称不能为空'
         return
     }
-    saving.value = true
+    saving.value     = true
     saveStatus.value = ''
     try {
         await adminUpdateGame(editForm.value.id, {
-            name: editForm.value.name.trim(),
+            name:        editForm.value.name.trim(),
             description: editForm.value.description.trim(),
-            tags: editForm.value.tags.trim(),
-            author: editForm.value.author.trim(),
-            sort_order: Number(editForm.value.sort_order) || 0,
-            image_url: editForm.value.image_url.trim(),
-            game_code: editForm.value.game_code,
+            tags:        editForm.value.tags.trim(),
+            author:      editForm.value.author.trim(),
+            sort_order:  Number(editForm.value.sort_order) || 0,
+            image_url:   editForm.value.image_url.trim(),
+            game_code:   editForm.value.game_code,
         })
         saveStatus.value = '✅ 保存成功'
         await loadGames(store.pagination.page)
@@ -493,28 +669,41 @@ async function saveEdit() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// 预览弹窗
-// 同理：预览也需要从详情接口获取 game_code，
-// 列表数据中 game_code 为空时 srcdoc 为空白页。
-// ═══════════════════════════════════════════════════════════════
+// ★ 封面图文件上传（问题1）：FileReader → base64 → image_url
+function onCoverFileChange(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+    if (file.size > 500 * 1024) {
+        alert('图片文件不能超过 500KB')
+        return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+        editForm.value.image_url = reader.result as string
+        coverPreviewErr.value    = false
+    }
+    reader.readAsDataURL(file)
+    // 清空 input，允许重复选择同一文件
+    ;(e.target as HTMLInputElement).value = ''
+}
 
-const previewOpen = ref(false)
+// ── 预览弹窗（原版保持不变）──────────────────────────────────
+const previewOpen    = ref(false)
 const previewLoading = ref(false)
-const previewIframe = ref<HTMLIFrameElement | null>(null)
-const previewData = ref<{ name: string; game_code: string }>({ name: '', game_code: '' })
+const previewIframe  = ref<HTMLIFrameElement | null>(null)
+const previewData    = ref<{ name: string; game_code: string }>({ name: '', game_code: '' })
 
 async function openPreview(game: any) {
-    previewData.value = { name: game.name, game_code: '' }
+    previewData.value    = { name: game.name, game_code: '' }
     previewLoading.value = true
-    previewOpen.value = true
+    previewOpen.value    = true
 
     try {
-        const res = await fetchGame(game.id)
+        const res    = await fetchGame(game.id)
         const detail = res?.data ?? res
         previewData.value.game_code = detail.game_code ?? ''
     } catch (e: any) {
-        previewData.value.game_code = `<p style="color:red;padding:20px">加载失败：${(e as any).message}</p>`
+        previewData.value.game_code = `<p style="color:red;padding:20px">加载失败：${e.message}</p>`
     } finally {
         previewLoading.value = false
     }
@@ -526,50 +715,40 @@ function openFullscreen() {
     }
 }
 
-// 弹窗开关时控制 body 滚动
 watch([editOpen, previewOpen], ([e, p]) => {
     document.body.style.overflow = (e || p) ? 'hidden' : ''
 })
 
-// ── 资源管理器 ────────────────────────────────────────────────
+// ── 资源管理器（原版保持不变）────────────────────────────────
 const assetOpen = ref(false)
 
-/**
- * 接收资源管理器的插入事件，将代码片段追加到游戏代码光标处
- * 由于 textarea 不像 CodeMirror 有内置 API，这里采用：
- *   1. 优先插入到当前光标位置（selectionStart）
- *   2. 若焦点不在 textarea 上，则追加到末尾
- */
 function onAssetInsert({ snippet }: { snippet: string }) {
-    const code = editForm.value.game_code
+    const code     = editForm.value.game_code
     const textarea = document.querySelector<HTMLTextAreaElement>('.form-code')
 
     if (textarea && document.activeElement === textarea) {
         const start = textarea.selectionStart
-        const end = textarea.selectionEnd
+        const end   = textarea.selectionEnd
         editForm.value.game_code = code.slice(0, start) + snippet + code.slice(end)
-        // 恢复光标到插入内容末尾
         setTimeout(() => {
             textarea.selectionStart = textarea.selectionEnd = start + snippet.length
             textarea.focus()
         }, 0)
     } else {
-        // 追加到末尾
         editForm.value.game_code = code + (code.endsWith('\n') ? '' : '\n') + snippet
     }
-    // 自动展开代码区
     showCode.value = true
 }
 </script>
 
 <style scoped>
-/* ── 页面骨架 ──────────────────────────────────────────────── */
+/* ── 页面骨架（原版） ──────────────────────────────────────────────── */
 .og-page {
     min-height: 100vh;
     background: var(--sakura-50, #fff5f8);
 }
 
-/* ── Hero ───────────────────────────────────────────────────── */
+/* ── Hero（原版） ───────────────────────────────────────────────────── */
 .og-hero {
     background: linear-gradient(135deg, var(--sakura-500, #e87da0), var(--sakura-600, #c44d75));
     color: #fff;
@@ -595,7 +774,7 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 }
 
 .og-subtitle {
-    font-size: 0.88rem;
+    font-size: 0.9rem;
     opacity: 0.85;
 }
 
@@ -606,43 +785,38 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 }
 
 .stat-pill {
-    background: rgba(255, 255, 255, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(255,255,255,0.18);
     border-radius: 12px;
-    padding: 10px 18px;
-    text-align: center;
-    min-width: 70px;
+    padding: 10px 20px;
+    min-width: 64px;
+    backdrop-filter: blur(4px);
 }
 
-.stat-pill.active {
-    background: rgba(110, 231, 183, 0.25);
-    border-color: rgba(110, 231, 183, 0.5);
-}
-
-.stat-pill.inactive {
-    background: rgba(248, 113, 113, 0.25);
-    border-color: rgba(248, 113, 113, 0.5);
-}
+.stat-pill.active { background: rgba(255,255,255,0.28); }
+.stat-pill.inactive { background: rgba(0,0,0,0.15); }
 
 .stat-n {
-    display: block;
     font-size: 1.5rem;
-    font-weight: 800;
+    font-weight: 900;
+    line-height: 1;
 }
 
 .stat-l {
     font-size: 0.72rem;
     opacity: 0.8;
+    margin-top: 3px;
 }
 
-/* ── 工具栏 ─────────────────────────────────────────────────── */
+/* ── 工具栏（原版 + 导出按钮） ──────────────────────────────────── */
 .og-toolbar {
-    background: #fff;
+    background: var(--surface, #fff);
     border-bottom: 1px solid var(--border, #f0d6df);
     position: sticky;
     top: 64px;
-    z-index: 10;
-    box-shadow: 0 2px 8px rgba(196, 77, 117, 0.06);
+    z-index: 50;
 }
 
 .og-toolbar-inner {
@@ -651,40 +825,37 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     padding: 12px 24px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
 .search-wrap {
+    position: relative;
     flex: 1;
     min-width: 200px;
-    position: relative;
     display: flex;
     align-items: center;
 }
 
 .search-icon {
     position: absolute;
-    left: 12px;
-    font-size: 0.85rem;
+    left: 10px;
+    font-size: 0.9rem;
     pointer-events: none;
 }
 
 .og-search {
     width: 100%;
-    padding: 8px 36px 8px 34px;
-    border: 1.5px solid var(--border, #f0d6df);
+    padding: 8px 32px 8px 32px;
     border-radius: 20px;
-    font-size: 0.88rem;
+    border: 1.5px solid var(--border, #f0d6df);
     background: var(--sakura-50, #fff5f8);
-    color: var(--ink-700, #444);
+    font-size: 0.88rem;
     outline: none;
     transition: border-color 0.2s;
 }
 
-.og-search:focus {
-    border-color: var(--sakura-400, #e87da0);
-}
+.og-search:focus { border-color: var(--sakura-300, #f9a8c9); }
 
 .search-clear {
     position: absolute;
@@ -692,7 +863,7 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     background: none;
     border: none;
     cursor: pointer;
-    color: var(--ink-400, #aaa);
+    color: var(--ink-300, #ccc);
     font-size: 0.8rem;
     padding: 2px 4px;
 }
@@ -704,43 +875,131 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 
 .filter-tab {
     padding: 6px 14px;
-    border-radius: 16px;
-    font-size: 0.8rem;
-    font-weight: 600;
+    border-radius: 20px;
     border: 1.5px solid var(--border, #f0d6df);
-    background: none;
+    background: var(--surface, #fff);
+    font-size: 0.82rem;
+    font-weight: 500;
     cursor: pointer;
-    color: var(--ink-500, #888);
-    transition: all 0.18s;
-    white-space: nowrap;
+    transition: all 0.2s;
+    color: var(--ink-500, #777);
 }
 
+.filter-tab:hover { border-color: var(--sakura-300, #f9a8c9); color: var(--sakura-500, #e87da0); }
 .filter-tab.active {
     background: var(--sakura-500, #e87da0);
-    border-color: var(--sakura-500);
+    border-color: var(--sakura-500, #e87da0);
     color: #fff;
 }
 
 .og-select {
     padding: 7px 12px;
-    border-radius: 12px;
+    border-radius: 10px;
     border: 1.5px solid var(--border, #f0d6df);
-    background: var(--sakura-50, #fff5f8);
-    color: var(--ink-600, #555);
+    background: var(--surface, #fff);
     font-size: 0.82rem;
-    cursor: pointer;
+    color: var(--ink-600, #555);
     outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
 }
 
-.og-select-sm {
-    min-width: 90px;
+.og-select:focus { border-color: var(--sakura-300, #f9a8c9); }
+.og-select-sm { min-width: 90px; }
+
+/* ★ 导出按钮 + 下拉菜单（问题7） */
+.export-wrap {
+    position: relative;
 }
 
-/* ── 主体 ───────────────────────────────────────────────────── */
+.btn-export {
+    padding: 7px 14px;
+    border-radius: 10px;
+    border: 1.5px solid var(--sakura-300, #f9a8c9);
+    background: var(--surface, #fff);
+    color: var(--sakura-600, #c44d75);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-export:hover { background: var(--sakura-100, #fde8ef); }
+
+.export-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #f0d6df);
+    border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(196, 77, 117, 0.15);
+    z-index: 200;
+    min-width: 210px;
+    overflow: hidden;
+}
+
+.export-dropdown button {
+    display: block;
+    width: 100%;
+    padding: 11px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.84rem;
+    color: var(--ink-600, #555);
+    transition: background 0.15s;
+}
+
+.export-dropdown button:hover { background: var(--sakura-50, #fff5f8); }
+
+/* ★ 批量操作栏（问题5） */
+.batch-bar {
+    max-width: 1200px;
+    margin: 8px auto 0;
+    padding: 10px 24px;
+    background: #fff3e0;
+    border: 1.5px solid #ffcc80;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.batch-info {
+    font-size: 0.88rem;
+    color: #e65100;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.batch-btn {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.batch-on     { background: #e8f5e9; color: #388e3c; border: 1.5px solid #a5d6a7; }
+.batch-on:hover     { background: #c8e6c9; }
+.batch-off    { background: #fff8e1; color: #f57c00; border: 1.5px solid #ffcc80; }
+.batch-off:hover    { background: #ffecb3; }
+.batch-del    { background: #ffebee; color: #c62828; border: 1.5px solid #ef9a9a; }
+.batch-del:hover    { background: #ffcdd2; }
+.batch-cancel { background: #f5f5f5; color: #777; border: 1.5px solid #ddd; }
+.batch-cancel:hover { background: #eeeeee; }
+
+/* ── 主体 ────────────────────────────────────────────────────── */
 .og-main {
     max-width: 1200px;
-    margin: 0 auto;
-    padding: 24px;
+    margin: 16px auto;
+    padding: 0 24px 40px;
 }
 
 .og-loading {
@@ -748,166 +1007,129 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 60px;
+    padding: 80px 20px;
     color: var(--ink-400, #aaa);
     font-size: 1rem;
 }
 
 .loading-spin {
-    animation: spin 1.2s linear infinite;
     display: inline-block;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
+    animation: sakuraSpin 1.2s linear infinite;
 }
 
 .og-empty {
     text-align: center;
-    padding: 80px 24px;
-    color: var(--ink-300, #ccc);
+    padding: 80px 20px;
 }
 
-.og-empty-icon {
-    font-size: 3rem;
-    margin-bottom: 12px;
-}
+.og-empty-icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.4; }
+.og-empty-text { font-size: 1.1rem; color: var(--ink-600, #555); font-weight: 600; }
+.og-empty-sub  { font-size: 0.85rem; color: var(--ink-300, #ccc); margin-top: 6px; }
 
-.og-empty-text {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-bottom: 6px;
-}
-
-.og-empty-sub {
-    font-size: 0.85rem;
-}
-
-/* ── 表格 ───────────────────────────────────────────────────── */
+/* ── 表格 ────────────────────────────────────────────────────── */
 .og-table-wrap {
-    background: #fff;
+    overflow-x: auto;
     border-radius: 16px;
     border: 1px solid var(--border, #f0d6df);
-    overflow: hidden;
-    overflow-x: auto;
-    box-shadow: 0 2px 12px rgba(196, 77, 117, 0.06);
+    background: var(--surface, #fff);
+    box-shadow: 0 2px 16px rgba(196, 77, 117, 0.06);
 }
 
 .og-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.86rem;
-    min-width: 800px;
-}
-
-.og-table thead tr {
-    background: var(--sakura-50, #fff5f8);
-    border-bottom: 2px solid var(--border, #f0d6df);
+    font-size: 0.84rem;
 }
 
 .og-table th {
     padding: 12px 14px;
-    text-align: left;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--sakura-600, #c44d75);
-    letter-spacing: 0.05em;
-    white-space: nowrap;
-}
-
-.og-row td {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--sakura-50, #fff5f8);
-    vertical-align: top;
-}
-
-.og-row:last-child td {
-    border-bottom: none;
-}
-
-.og-row:hover td {
     background: var(--sakura-50, #fff5f8);
-}
-
-.og-row.inactive td {
-    opacity: 0.55;
-}
-
-.td-id {
-    color: var(--ink-400, #aaa);
-    font-size: 0.78rem;
+    color: var(--sakura-600, #c44d75);
+    font-weight: 700;
+    text-align: left;
+    border-bottom: 2px solid var(--border, #f0d6df);
     white-space: nowrap;
 }
 
-.td-name .game-name {
-    font-weight: 600;
-    color: var(--ink-700, #333);
-    line-height: 1.4;
+.og-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--sakura-50, #fff5f8);
+    vertical-align: middle;
 }
 
-.td-name .game-desc {
-    font-size: 0.75rem;
-    color: var(--ink-400, #aaa);
-    margin-top: 3px;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+.og-row:last-child td { border-bottom: none; }
+.og-row:hover td { background: var(--sakura-50, #fff5f8); }
+.og-row.inactive td { opacity: 0.5; }
+/* ★ 选中行高亮（问题5） */
+.og-row.selected td { background: #fff8e1; }
+
+/* ★ 封面缩略图（问题1） */
+.td-cover { width: 72px; }
+
+.cover-thumb {
+    width: 64px;
+    height: 40px;
+    border-radius: 6px;
     overflow: hidden;
-    max-width: 260px;
-}
-
-.td-tags {
+    background: var(--sakura-100, #fde8ef);
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+    align-items: center;
+    justify-content: center;
 }
 
+.thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.thumb-default {
+    font-size: 1.2rem;
+    opacity: 0.6;
+}
+
+/* 表格内容（原版） */
+.td-id     { font-size: 0.75rem; color: var(--ink-300, #ccc); text-align: center; }
+.td-name   { min-width: 160px; }
+.game-name { font-weight: 600; color: var(--ink-900, #111); }
+.game-desc {
+    font-size: 0.75rem;
+    color: var(--ink-300, #ccc);
+    margin-top: 2px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+}
+
+.td-tags { min-width: 120px; }
 .tag-chip {
-    padding: 2px 8px;
+    display: inline-block;
+    padding: 2px 7px;
     border-radius: 10px;
     background: var(--sakura-100, #fde8ef);
     color: var(--sakura-600, #c44d75);
-    font-size: 0.72rem;
-    white-space: nowrap;
+    font-size: 0.7rem;
+    font-weight: 500;
+    margin: 2px 2px 0 0;
 }
 
-.td-author {
-    color: var(--ink-500, #777);
-    font-size: 0.82rem;
-}
-
-.td-num {
-    text-align: center;
-    color: var(--ink-600, #555);
-    font-variant-numeric: tabular-nums;
-}
-
-.td-date {
-    color: var(--ink-400, #aaa);
-    font-size: 0.78rem;
-    white-space: nowrap;
-}
+.td-author { font-size: 0.8rem; color: var(--ink-500, #777); white-space: nowrap; }
+.td-num    { text-align: center; color: var(--ink-500, #777); font-size: 0.8rem; }
+.td-status { text-align: center; }
 
 .status-badge {
     display: inline-block;
     padding: 3px 10px;
-    border-radius: 10px;
+    border-radius: 20px;
     font-size: 0.75rem;
     font-weight: 700;
-    white-space: nowrap;
 }
 
-.status-badge.on {
-    background: rgba(110, 231, 183, 0.2);
-    color: #059669;
-}
+.status-badge.on  { background: #e8f5e9; color: #388e3c; }
+.status-badge.off { background: #f5f5f5; color: #9e9e9e; }
 
-.status-badge.off {
-    background: rgba(248, 113, 113, 0.15);
-    color: #dc2626;
-}
+.td-date { font-size: 0.78rem; color: var(--ink-300, #ccc); white-space: nowrap; }
 
 .td-actions {
     display: flex;
@@ -916,62 +1138,34 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 }
 
 .btn-act {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     border-radius: 8px;
-    border: 1px solid var(--border, #f0d6df);
-    background: none;
+    border: 1.5px solid var(--border, #f0d6df);
+    background: var(--surface, #fff);
     cursor: pointer;
-    font-size: 0.88rem;
+    font-size: 0.9rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s;
+    transition: all 0.2s;
 }
 
-.btn-act:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
+.btn-act:hover { background: var(--sakura-100, #fde8ef); border-color: var(--sakura-300, #f9a8c9); }
+.btn-act:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-del:hover    { background: #ffebee; border-color: #ef9a9a; }
+.btn-toggle-on:hover  { background: #e8f5e9; border-color: #a5d6a7; }
+.btn-toggle-off:hover { background: #fff8e1; border-color: #ffcc80; }
 
-.btn-spin {
-    animation: spin 1s linear infinite;
-    display: inline-block;
-    font-size: 0.8rem;
-}
+.btn-spin { animation: sakuraSpin 1s linear infinite; }
 
-.btn-preview:hover {
-    background: var(--sakura-100, #fde8ef);
-    border-color: var(--sakura-300);
-}
-
-.btn-edit:hover {
-    background: #fef9c3;
-    border-color: #fcd34d;
-}
-
-.btn-toggle-off:hover {
-    background: #fee2e2;
-    border-color: #fca5a5;
-}
-
-.btn-toggle-on:hover {
-    background: #d1fae5;
-    border-color: #6ee7b7;
-}
-
-.btn-del:hover {
-    background: #fee2e2;
-    border-color: #fca5a5;
-}
-
-/* ── 分页 ───────────────────────────────────────────────────── */
+/* ── 分页（原版） ────────────────────────────────────────────── */
 .og-pagination {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    margin-top: 24px;
+    gap: 5px;
+    margin-top: 20px;
     flex-wrap: wrap;
 }
 
@@ -981,52 +1175,35 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     padding: 0 8px;
     border-radius: 8px;
     border: 1.5px solid var(--border, #f0d6df);
-    background: #fff;
+    background: var(--surface, #fff);
+    font-size: 0.82rem;
     cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 500;
+    transition: all 0.15s;
     color: var(--ink-600, #555);
-    transition: all 0.18s;
 }
 
-.pg-btn:hover:not(:disabled):not(.ellipsis) {
-    border-color: var(--sakura-400);
-    color: var(--sakura-600);
-}
-
+.pg-btn:hover:not(:disabled) { border-color: var(--sakura-300, #f9a8c9); color: var(--sakura-500, #e87da0); }
 .pg-btn.active {
     background: var(--sakura-500, #e87da0);
-    border-color: var(--sakura-500);
+    border-color: var(--sakura-500, #e87da0);
     color: #fff;
+    font-weight: 700;
 }
 
-.pg-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-}
+.pg-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.pg-btn.ellipsis { border: none; cursor: default; color: var(--ink-200, #ddd); }
+.pg-info { font-size: 0.78rem; color: var(--ink-300, #ccc); margin-left: 6px; }
 
-.pg-btn.ellipsis {
-    border: none;
-    background: none;
-    cursor: default;
-}
-
-.pg-info {
-    font-size: 0.78rem;
-    color: var(--ink-400, #aaa);
-    margin-left: 8px;
-}
-
-/* ── 弹窗通用 ───────────────────────────────────────────────── */
+/* ── 弹窗通用（原版） ────────────────────────────────────────── */
 .modal-overlay {
     position: fixed;
     inset: 0;
-    z-index: 9999;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(0,0,0,0.4);
+    z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 16px;
+    padding: 20px;
 }
 
 .modal-panel {
@@ -1034,27 +1211,27 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     border-radius: 20px;
     width: 100%;
     max-width: 720px;
-    max-height: 92vh;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(196,77,117,0.2);
     display: flex;
     flex-direction: column;
-    box-shadow: 0 24px 64px rgba(196, 77, 117, 0.2);
-    overflow: hidden;
 }
 
 .modal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 18px 24px 14px;
+    padding: 20px 24px 16px;
     border-bottom: 1px solid var(--border, #f0d6df);
-    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    background: #fff;
+    border-radius: 20px 20px 0 0;
+    z-index: 1;
 }
 
-.modal-title {
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--sakura-600, #c44d75);
-}
+.modal-title { font-size: 1rem; font-weight: 700; color: var(--sakura-600, #c44d75); }
 
 .modal-close {
     background: none;
@@ -1067,284 +1244,331 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     transition: background 0.2s;
 }
 
-.modal-close:hover {
-    background: var(--sakura-100, #fde8ef);
-}
+.modal-close:hover { background: var(--sakura-100, #fde8ef); }
 
-.modal-body {
-    padding: 20px 24px;
-    overflow-y: auto;
-    flex: 1;
-}
-
-.modal-footer {
-    padding: 14px 24px;
-    border-top: 1px solid var(--border, #f0d6df);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-shrink: 0;
-}
-
-.modal-footer-left {
-    flex: 1;
-}
-
-.modal-footer-right {
-    display: flex;
-    gap: 10px;
-}
-
-/* 弹窗内加载态 */
 .edit-loading {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 60px;
+    padding: 60px 20px;
     color: var(--ink-400, #aaa);
-    font-size: 0.95rem;
-    flex: 1;
 }
 
-/* ── 表单 ───────────────────────────────────────────────────── */
+/* ── 编辑表单（原版 + 新增样式） ─────────────────────────────── */
+.modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+
 .form-section {
-    font-size: 0.72rem;
+    font-size: 0.78rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    color: var(--ink-400, #aaa);
     text-transform: uppercase;
-    color: var(--sakura-500, #e87da0);
-    margin: 0 0 12px;
-    padding-bottom: 6px;
-    border-bottom: 1px dashed var(--border, #f0d6df);
-}
-
-.form-section:not(:first-child) {
-    margin-top: 20px;
+    letter-spacing: 0.06em;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border, #f0d6df);
 }
 
 .form-section-sub {
+    font-size: 0.72rem;
     font-weight: 400;
     text-transform: none;
-    letter-spacing: 0;
-    font-size: 0.7rem;
-    color: var(--ink-400);
+    color: var(--ink-200, #ddd);
+    margin-left: 8px;
 }
 
-.form-row {
-    margin-bottom: 14px;
-}
+.form-row { display: flex; flex-direction: column; gap: 5px; }
+.form-row-full { grid-column: 1 / -1; }
 
 .form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 14px;
 }
 
 .form-label {
-    display: block;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     font-weight: 600;
-    color: var(--ink-500, #888);
-    margin-bottom: 5px;
+    color: var(--ink-600, #555);
 }
 
 .form-label em {
-    color: #f87171;
+    color: #f44336;
     font-style: normal;
+    margin-left: 2px;
+}
+
+.label-hint {
+    font-weight: 400;
+    color: var(--ink-300, #ccc);
+    font-size: 0.72rem;
+    margin-left: 4px;
 }
 
 .form-input,
 .form-textarea {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1.5px solid var(--border, #f0d6df);
+    padding: 9px 12px;
     border-radius: 10px;
-    font-size: 0.88rem;
+    border: 1.5px solid var(--border, #f0d6df);
     background: var(--sakura-50, #fff5f8);
-    color: var(--ink-700, #444);
+    font-size: 0.85rem;
+    font-family: inherit;
+    color: var(--ink-900, #111);
     outline: none;
     transition: border-color 0.2s;
+    resize: vertical;
 }
 
 .form-input:focus,
 .form-textarea:focus {
-    border-color: var(--sakura-400, #e87da0);
+    border-color: var(--sakura-300, #f9a8c9);
+    background: #fff;
 }
 
-.form-textarea {
-    resize: vertical;
-}
-
-/* 代码工具栏 */
-.code-toolbar {
+/* ★ 标签枚举选择器（问题6） */
+.tag-enum-bar {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 10px;
+    border: 1.5px solid var(--border, #f0d6df);
+    border-radius: 10px;
+    background: var(--sakura-50, #fff5f8);
+    max-height: 110px;
+    overflow-y: auto;
 }
 
-.code-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.code-bytes {
-    font-size: 0.82rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.bytes-empty {
-    color: var(--ink-300, #ccc);
-}
-
-.bytes-ok {
-    color: #059669;
-}
-
-.bytes-warn {
-    color: #d97706;
-}
-
-.code-lines {
-    font-size: 0.75rem;
-    color: var(--ink-400, #aaa);
-}
-
-.btn-asset-mgr {
-    padding: 5px 14px;
+.tag-enum-btn {
+    padding: 3px 11px;
     border-radius: 16px;
+    border: 1.5px solid var(--border, #f0d6df);
+    background: var(--surface, #fff);
+    color: var(--ink-500, #777);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.tag-enum-btn:hover {
+    border-color: var(--sakura-300, #f9a8c9);
+    color: var(--sakura-500, #e87da0);
+}
+
+.tag-enum-btn.selected {
+    background: var(--sakura-500, #e87da0);
+    border-color: var(--sakura-500, #e87da0);
+    color: #fff;
+    font-weight: 600;
+}
+
+/* ★ 封面上传区域（问题1） */
+.cover-edit-area {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 6px;
+}
+
+.cover-preview-box {
+    width: 100px;
+    height: 64px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1.5px dashed var(--border, #f0d6df);
+    background: var(--sakura-50, #fff5f8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.cover-preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cover-preview-empty {
+    font-size: 1.6rem;
+    opacity: 0.4;
+}
+
+.cover-edit-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: center;
+}
+
+.btn-upload-cover {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1.5px solid var(--sakura-300, #f9a8c9);
+    background: var(--surface, #fff);
+    color: var(--sakura-600, #c44d75);
     font-size: 0.78rem;
     font-weight: 600;
-    border: 1.5px solid var(--sakura-300, #f9b8cc);
-    background: var(--sakura-50, #fff5f8);
-    color: var(--sakura-600, #c44d75);
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
 }
 
-.btn-asset-mgr:hover {
-    background: var(--sakura-100, #fde8ef);
-    border-color: var(--sakura-400);
-}
+.btn-upload-cover:hover { background: var(--sakura-100, #fde8ef); }
 
-.btn-code-toggle {
-    padding: 5px 14px;
+.hidden-file-input { display: none; }
+
+.btn-remove-cover {
+    padding: 4px 12px;
     border-radius: 16px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    border: 1.5px solid var(--border, #f0d6df);
-    background: var(--sakura-50, #fff5f8);
-    color: var(--sakura-600, #c44d75);
+    border: 1.5px solid #ef9a9a;
+    background: #ffebee;
+    color: #c62828;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.2s;
 }
 
-.btn-code-toggle:hover {
-    background: var(--sakura-100, #fde8ef);
+.btn-remove-cover:hover { background: #ffcdd2; }
+
+.cover-hint {
+    font-size: 0.7rem;
+    color: var(--ink-300, #ccc);
+    margin: 0;
 }
 
+/* 代码区（原版） */
+.code-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--ink-50, #f9f9f9);
+    border-radius: 10px 10px 0 0;
+    border: 1.5px solid var(--border, #f0d6df);
+}
+
+.code-meta { display: flex; align-items: center; gap: 8px; }
+
+.code-bytes { font-size: 0.82rem; font-weight: 700; }
+.bytes-empty { color: var(--ink-300, #ccc); }
+.bytes-ok    { color: #388e3c; }
+.bytes-warn  { color: #e65100; }
+
+.code-lines { font-size: 0.78rem; color: var(--ink-300, #ccc); }
+
+.btn-asset-mgr {
+    padding: 5px 12px;
+    border-radius: 8px;
+    background: var(--sakura-100, #fde8ef);
+    color: var(--sakura-600, #c44d75);
+    border: 1.5px solid var(--sakura-200, #fbd0df);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-asset-mgr:hover { background: var(--sakura-200, #fbd0df); }
+
+.btn-code-toggle {
+    padding: 5px 12px;
+    border-radius: 8px;
+    background: var(--ink-100, #f0f0f0);
+    color: var(--ink-600, #555);
+    border: 1.5px solid var(--border, #f0d6df);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-code-toggle:hover { background: var(--ink-200, #e5e5e5); }
+
 .code-editor-wrap {
-    margin-bottom: 4px;
+    border: 1.5px solid var(--border, #f0d6df);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    overflow: hidden;
 }
 
 .form-code {
     width: 100%;
     padding: 12px;
-    border: 1.5px solid var(--border, #f0d6df);
-    border-radius: 10px;
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-    font-size: 0.8rem;
-    background: #1a1020;
-    color: #f0e0e8;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: #1a1a2e;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: none;
     outline: none;
     resize: vertical;
-    line-height: 1.6;
-    transition: border-color 0.2s;
+    box-sizing: border-box;
+    display: block;
 }
 
-.form-code:focus {
-    border-color: var(--sakura-400, #e87da0);
+/* 弹窗底栏（原版） */
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px 18px;
+    border-top: 1px solid var(--border, #f0d6df);
+    position: sticky;
+    bottom: 0;
+    background: #fff;
+    border-radius: 0 0 20px 20px;
+    gap: 12px;
 }
 
-/* 底部提示文字 */
-.footer-tip {
-    font-size: 0.82rem;
-    color: var(--ink-400, #aaa);
-}
+.modal-footer-left { flex: 1; min-width: 0; }
+.modal-footer-right { display: flex; gap: 10px; flex-shrink: 0; }
 
-.footer-tip.tip-ok {
-    color: #059669;
-    font-weight: 600;
-}
-
-.footer-tip.tip-err {
-    color: #dc2626;
-    font-weight: 600;
-}
-
-.footer-tip.tip-warn {
-    color: #d97706;
-    font-weight: 600;
-}
+.footer-tip { font-size: 0.82rem; }
+.tip-ok   { color: #388e3c; }
+.tip-err  { color: #c62828; }
+.tip-warn { color: #e65100; }
 
 .btn-cancel {
-    padding: 9px 22px;
-    border-radius: 20px;
+    padding: 8px 20px;
+    border-radius: 10px;
     border: 1.5px solid var(--border, #f0d6df);
-    background: none;
-    color: var(--ink-500, #888);
-    font-size: 0.88rem;
-    font-weight: 600;
+    background: var(--surface, #fff);
+    font-size: 0.85rem;
+    color: var(--ink-600, #555);
     cursor: pointer;
     transition: all 0.2s;
 }
 
-.btn-cancel:hover {
-    background: var(--sakura-50, #fff5f8);
-}
+.btn-cancel:hover { background: var(--sakura-50, #fff5f8); }
 
 .btn-save {
-    padding: 9px 26px;
-    border-radius: 20px;
+    padding: 8px 24px;
+    border-radius: 10px;
     background: linear-gradient(135deg, var(--sakura-500, #e87da0), var(--sakura-600, #c44d75));
     color: #fff;
-    border: none;
-    font-size: 0.88rem;
+    font-size: 0.85rem;
     font-weight: 700;
+    border: none;
     cursor: pointer;
-    box-shadow: 0 4px 14px rgba(196, 77, 117, 0.3);
-    transition: all 0.2s;
+    transition: opacity 0.2s;
 }
 
-.btn-save:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(196, 77, 117, 0.4);
-}
+.btn-save:hover:not(:disabled) { opacity: 0.9; }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn-save:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* ── 预览弹窗 ───────────────────────────────────────────────── */
-.preview-overlay {
-    padding: 12px;
-}
+/* ── 预览弹窗（原版） ────────────────────────────────────────── */
+.preview-overlay { align-items: flex-start; padding-top: 4vh; }
 
 .preview-panel {
-    background: #0d0a0e;
+    background: #111;
     border-radius: 16px;
     width: 100%;
-    max-width: 960px;
-    height: 90vh;
+    max-width: 900px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
     display: flex;
     flex-direction: column;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-    overflow: hidden;
 }
 
 .preview-header {
@@ -1352,62 +1576,47 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    flex-shrink: 0;
+    background: rgba(255,255,255,0.06);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
-.preview-header .modal-title {
-    color: #f0e0e8;
-}
+.preview-header .modal-title { color: rgba(255,255,255,0.9); }
+.preview-header .modal-close { color: rgba(255,255,255,0.6); }
+.preview-header .modal-close:hover { background: rgba(255,255,255,0.1); }
 
-.preview-header .modal-close {
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.preview-header .modal-close:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.preview-loading-tip {
-    font-size: 0.82rem;
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.preview-placeholder {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    color: rgba(255, 255, 255, 0.4);
-    font-size: 0.95rem;
-}
+.preview-loading-tip { font-size: 0.82rem; color: rgba(255,255,255,0.5); }
 
 .btn-fullscreen {
     padding: 5px 14px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.8);
     font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.2s;
 }
 
-.btn-fullscreen:hover {
-    background: rgba(255, 255, 255, 0.2);
+.btn-fullscreen:hover { background: rgba(255,255,255,0.14); }
+
+.preview-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 80px 20px;
+    color: rgba(255,255,255,0.4);
+    font-size: 1rem;
 }
 
 .preview-iframe {
-    flex: 1;
-    border: none;
     width: 100%;
-    height: 100%;
-    background: #fff;
+    height: 65vh;
+    border: none;
+    display: block;
 }
 
-/* ── 动画 ───────────────────────────────────────────────────── */
+/* ── 动画（原版） ────────────────────────────────────────────── */
 .modal-enter-active,
 .modal-leave-active {
     transition: opacity 0.2s, transform 0.2s;
@@ -1416,12 +1625,12 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 .modal-enter-from,
 .modal-leave-to {
     opacity: 0;
-    transform: scale(0.97) translateY(8px);
+    transform: scale(0.96) translateY(8px);
 }
 
 .expand-enter-active,
 .expand-leave-active {
-    transition: all 0.22s ease;
+    transition: all 0.25s ease;
     overflow: hidden;
 }
 
@@ -1434,6 +1643,14 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 .expand-enter-to,
 .expand-leave-from {
     opacity: 1;
-    max-height: 700px;
+    max-height: 600px;
+}
+
+/* ── 响应式 ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .og-toolbar-inner { gap: 8px; }
+    .batch-bar { margin: 8px 16px 0; }
+    .og-main { padding: 0 12px 40px; }
 }
 </style>

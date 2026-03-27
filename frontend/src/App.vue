@@ -198,6 +198,18 @@
                   清除全部
                 </button>
               </div>
+              <div class="sp-item">
+                <div class="sp-item-info">
+                  <span class="sp-item-icon">⚡</span>
+                  <div>
+                    <div class="sp-item-name">离线游戏缓存</div>
+                    <div class="sp-item-desc">{{ cacheStats.count }} 个游戏 · {{ toKB(cacheStats.totalBytes) }} KB</div>
+                  </div>
+                </div>
+                <button class="sp-btn sp-btn-warn" :disabled="cacheStats.count === 0" @click="clearGameCacheAll">
+                  清除缓存
+                </button>
+              </div>
             </div>
 
             <!-- 一键清除全部 -->
@@ -220,6 +232,7 @@ import { useLocalGamesStore } from '@/stores/localGames'
 import ToastContainer from '@/components/ToastContainer.vue'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { getGameCacheStats, clearAllGameCache, type GameCacheStats } from '@/composables/useGameCache'
 
 // ── Stores ───────────────────────────────────────────────────
 const adminStore = useAdminStore()
@@ -313,6 +326,7 @@ function getGameSizeKB(gameId: string): string {
 
 // ── 进度统计 ─────────────────────────────────────────────────
 const progressCount = ref(0)
+const cacheStats = ref<GameCacheStats>({ count: 0, totalBytes: 0, items: [] })
 const allProgressSizeKB = ref('0.0')
 
 function getProgressKeys(): string[] {
@@ -344,6 +358,7 @@ function refresh() {
   const progKeys = getProgressKeys()
   progressCount.value = progKeys.length
   allProgressSizeKB.value = toKB(progKeys.reduce((s, k) => s + keyBytes(k), 0))
+  cacheStats.value = getGameCacheStats()
 }
 
 onMounted(refresh)
@@ -379,6 +394,12 @@ function clearAllProgress() {
   if (!confirm('确认清除所有游戏的进度记录？此操作不可恢复。')) return
   getProgressKeys().forEach(k => localStorage.removeItem(k))
   refresh()
+}
+
+function clearGameCacheAll() {
+if (!confirm('确认清除所有离线游戏缓存？下次打开游戏时将重新下载。')) return
+clearAllGameCache()
+refresh()
 }
 
 function clearAll() {

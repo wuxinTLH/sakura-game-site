@@ -15,6 +15,24 @@
         <!-- ── 主内容 ──────────────────────────────────────────────────── -->
         <div class="content-wrap">
 
+            <!-- ★ 动态标签筛选栏（问题6） -->
+            <div class="tag-filter-bar" v-if="allTags.length > 0">
+                <button
+                    class="tag-filter-btn"
+                    :class="{ active: !currentTag }"
+                    @click="onTagSearch('')">
+                    全部
+                </button>
+                <button
+                    v-for="tag in allTags"
+                    :key="tag"
+                    class="tag-filter-btn"
+                    :class="{ active: currentTag === tag }"
+                    @click="onTagSearch(tag)">
+                    {{ tag }}
+                </button>
+            </div>
+
             <!-- 统计 + 排序工具栏 -->
             <div class="list-toolbar" v-if="!store.loading || store.list.length">
                 <p class="list-total">
@@ -100,18 +118,26 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useGamesStore } from '@/stores/games'
+import { fetchTags } from '@/api/tags'
 import GameCard from '@/components/GameCard.vue'
 import SearchBar from '@/components/SearchBar.vue'
 
 const store = useGamesStore()
-const searchText = ref('')
+const searchText   = ref('')
 const currentSearch = ref('')
-const currentTag = ref('')
-const sortBy = ref<'order' | 'newest' | 'hottest'>('order')
+const currentTag   = ref('')
+const sortBy       = ref<'order' | 'newest' | 'hottest'>('order')
+
+// ★ 动态标签列表（问题6）
+const allTags = ref<string[]>([])
 
 // ── 初始加载 ──────────────────────────────────────────────────────
-onMounted(() => {
+onMounted(async () => {
     store.load({ search: '', page: 1, sort: sortBy.value })
+    // 后台拉取标签枚举，失败时静默（不影响主流程）
+    try {
+        allTags.value = await fetchTags()
+    } catch { /* ignore */ }
 })
 
 // ── 搜索 / 标签 ───────────────────────────────────────────────────
@@ -119,7 +145,7 @@ let searchTimer: ReturnType<typeof setTimeout>
 
 function onSearch(val: string) {
     currentSearch.value = val
-    currentTag.value = ''
+    currentTag.value    = ''
     clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
         store.load({ search: val, tags: '', page: 1, sort: sortBy.value })
@@ -127,16 +153,16 @@ function onSearch(val: string) {
 }
 
 function onTagSearch(tag: string) {
-    currentTag.value = tag
+    currentTag.value    = tag
     currentSearch.value = ''
-    searchText.value = ''
+    searchText.value    = ''
     store.load({ search: '', tags: tag, page: 1, sort: sortBy.value })
 }
 
 function clearSearch() {
-    searchText.value = ''
+    searchText.value    = ''
     currentSearch.value = ''
-    currentTag.value = ''
+    currentTag.value    = ''
     store.load({ search: '', tags: '', page: 1, sort: sortBy.value })
 }
 
@@ -158,14 +184,14 @@ function goPage(p: number) {
 // ── 页码范围计算（最多显示 7 个，超出省略） ───────────────────────
 const pageRange = computed<(number | '…')[]>(() => {
     const total = store.pagination.totalPages
-    const cur = store.pagination.page
+    const cur   = store.pagination.page
     if (!total || total <= 1) return []
     if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
 
     const pages: (number | '…')[] = [1]
     if (cur > 3) pages.push('…')
     const from = Math.max(2, cur - 1)
-    const to = Math.min(total - 1, cur + 1)
+    const to   = Math.min(total - 1, cur + 1)
     for (let p = from; p <= to; p++) pages.push(p)
     if (cur < total - 2) pages.push('…')
     pages.push(total)
@@ -220,7 +246,42 @@ const pageRange = computed<(number | '…')[]>(() => {
 .content-wrap {
     max-width: 860px;
     margin: 0 auto;
-    padding: 28px 20px 60px;
+    padding: 20px 20px 60px;
+}
+
+/* ★ 动态标签筛选栏（问题6） */
+.tag-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tag-filter-btn {
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-600);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.tag-filter-btn:hover {
+    border-color: var(--sakura-300);
+    color: var(--sakura-500);
+    background: var(--sakura-100);
+}
+
+.tag-filter-btn.active {
+    background: var(--sakura-500);
+    border-color: var(--sakura-500);
+    color: #fff;
+    font-weight: 700;
 }
 
 /* ── 工具栏（统计 + 排序） ──────────────────────────────────────── */
@@ -349,13 +410,8 @@ const pageRange = computed<(number | '…')[]>(() => {
 }
 
 @keyframes shimmer {
-    0% {
-        background-position: -400px 0;
-    }
-
-    100% {
-        background-position: 400px 0;
-    }
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
 }
 
 .sk-cover,
@@ -381,22 +437,10 @@ const pageRange = computed<(number | '…')[]>(() => {
     gap: 10px;
 }
 
-.sk-line {
-    height: 12px;
-    border-radius: 6px;
-}
-
-.w60 {
-    width: 60%;
-}
-
-.w90 {
-    width: 90%;
-}
-
-.w45 {
-    width: 45%;
-}
+.sk-line { height: 12px; border-radius: 6px; }
+.w60 { width: 60%; }
+.w90 { width: 90%; }
+.w45 { width: 45%; }
 
 .sk-btn {
     flex-shrink: 0;

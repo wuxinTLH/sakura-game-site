@@ -1,17 +1,4 @@
 <template>
-    <!--
-    AssetManager.vue — 双模式资源管理器
-    =====================================
-    mode="local"  → 本地模式：资源存入 localStorage（无需登录/后端）
-    mode="cloud"  → 云端模式：资源存入数据库（需管理员 token）
-
-    用法：
-      <!-- 编辑器本地模式 -->
-    <AssetManager mode="local" v-model:open="open" @insert="onInsert" />
-
-    <!-- 在线游戏管理云端模式 -->
-    <AssetManager mode="cloud" :game-id="gameId" v-model:open="open" @insert="onInsert" />
-    -->
     <Teleport to="body">
         <Transition name="am-modal">
             <div v-if="open" class="am-overlay" @click.self="$emit('update:open', false)">
@@ -21,11 +8,7 @@
                     <div class="am-header">
                         <div class="am-header-left">
                             <span class="am-title">🗂 资源管理器</span>
-                            <!-- 模式标签 -->
-                            <span class="am-mode-tag" :class="mode === 'local' ? 'mode-local' : 'mode-cloud'">
-                                {{ mode === 'local' ? '💾 本地存储' : '☁️ 云端存储' }}
-                            </span>
-                            <span v-if="mode === 'cloud' && gameId != null" class="am-scope-tag">游戏 #{{ gameId }}</span>
+                            <span v-if="gameId != null" class="am-scope-tag">游戏 #{{ gameId }}</span>
                         </div>
                         <div class="am-header-right">
                             <!-- 用量条 -->
@@ -35,7 +18,8 @@
                                         :style="{ width: Math.min(quota.pct, 100) + '%' }" />
                                 </div>
                                 <span class="am-quota-text" :class="quotaClass">
-                                    {{ formatSize(quota.used) }} / {{ formatSize(quota.limit) }} ({{ quota.pct }}%)
+                                    {{ formatSize(quota.used) }} / {{ formatSize(quota.limit) }}
+                                    ({{ quota.pct }}%)
                                 </span>
                             </div>
                             <button class="am-close" @click="$emit('update:open', false)">✕</button>
@@ -51,8 +35,8 @@
                                 @click="filterType = t.value; loadAssets()">{{ t.icon }} {{ t.label }}</button>
                         </div>
 
-                        <!-- 云端专属：作用域切换 -->
-                        <div v-if="mode === 'cloud'" class="am-scope-tabs">
+                        <!-- 范围切换 -->
+                        <div class="am-scope-tabs">
                             <button class="am-scope-tab" :class="{ active: scope === 'game' }"
                                 :disabled="gameId == null" @click="scope = 'game'; loadAssets()">当前游戏</button>
                             <button class="am-scope-tab" :class="{ active: scope === 'all' }"
@@ -64,121 +48,135 @@
                             <span v-if="uploading" class="am-spin">⏳</span>
                             <span v-else>⬆ 上传资源</span>
                         </button>
-                        <input ref="fileInputRef" type="file" class="am-file-input" :accept="ACCEPT_MIME"
+                        <input ref="fileInputRef" type="file" class="am-file-input" :accept="acceptStr"
                             @change="handleFileChange" />
                     </div>
 
-                    <!-- 提示条 -->
+                    <!-- 上传进度/错误提示 -->
                     <Transition name="am-tip">
                         <div v-if="uploadTip" class="am-tip" :class="uploadTipClass">{{ uploadTip }}</div>
                     </Transition>
 
-                    <!-- ── 主体（网格 + 详情侧栏） ── -->
+                    <!-- ── 资源网格 ── -->
                     <div class="am-body" ref="bodyRef">
                         <div v-if="loading" class="am-loading">
-                            <span class="am-spin" style="font-size:1.8rem">🌸</span><span>加载中…</span>
+                            <span class="am-spin" style="font-size:1.8rem">🌸</span>
+                            <span>加载中…</span>
                         </div>
 
-                        <div v-else-if="displayAssets.length === 0" class="am-empty">
+                        <div v-else-if="assets.length === 0" class="am-empty">
                             <div class="am-empty-icon">🗂</div>
                             <div class="am-empty-text">暂无资源</div>
                             <div class="am-empty-sub">点击「⬆ 上传资源」添加图片、音频等文件</div>
                         </div>
 
-                        <template v-else>
-                            <!-- 网格 -->
-                            <div class="am-grid-wrap">
-                                <div class="am-grid">
-                                    <div v-for="asset in pagedAssets" :key="asset.id" class="am-card"
-                                        :class="{ selected: selectedId === asset.id }" @click="selectAsset(asset)">
-                                        <div class="am-card-preview">
-                                            <img v-if="asset.type === 'image'" :src="asset.data_uri || ''"
-                                                class="am-card-img" loading="lazy" :alt="asset.name" />
-                                            <div v-else class="am-card-icon">{{ assetIcon(asset.type) }}</div>
-                                        </div>
-                                        <div class="am-card-info">
-                                            <div class="am-card-name" :title="asset.name">{{ asset.name }}</div>
-                                            <div class="am-card-meta">
-                                                <span class="am-card-size">{{ formatSize(asset.size) }}</span>
-                                                <span v-if="mode === 'cloud' && (asset as any).game_id == null"
-                                                    class="am-card-scope">公共</span>
-                                            </div>
-                                        </div>
-                                        <div class="am-card-actions">
-                                            <button class="am-card-btn am-card-insert"
-                                                @click.stop="insertAsset(asset)">插入</button>
-                                            <button class="am-card-btn am-card-copy"
-                                                @click.stop="copyRef(asset)">复制</button>
-                                            <button class="am-card-btn am-card-del"
-                                                @click.stop="removeAsset(asset)">🗑</button>
-                                        </div>
+                        <div v-else class="am-grid">
+                            <div v-for="asset in assets" :key="asset.id" class="am-card"
+                                :class="{ selected: selectedId === asset.id }" @click="selectAsset(asset)">
+                                <!-- 预览区 -->
+                                <div class="am-card-preview">
+                                    <img v-if="asset.type === 'image' && previews[asset.id]" :src="previews[asset.id]"
+                                        class="am-card-img" loading="lazy" :alt="asset.name" />
+                                    <div v-else class="am-card-icon">{{ assetIcon(asset.type) }}</div>
+                                </div>
+
+                                <!-- 信息 -->
+                                <div class="am-card-info">
+                                    <div class="am-card-name" :title="asset.name">{{ asset.name }}</div>
+                                    <div class="am-card-meta">
+                                        <span class="am-card-size">{{ formatSize(asset.size) }}</span>
+                                        <span class="am-card-scope" v-if="asset.game_id == null">公共</span>
                                     </div>
                                 </div>
 
-                                <!-- 分页 -->
-                                <div v-if="totalPages > 1" class="am-pagination">
-                                    <button class="am-pg" :disabled="page <= 1" @click="goPage(page - 1)">‹</button>
-                                    <span class="am-pg-info">{{ page }} / {{ totalPages }}</span>
-                                    <button class="am-pg" :disabled="page >= totalPages"
-                                        @click="goPage(page + 1)">›</button>
+                                <!-- 操作 -->
+                                <div class="am-card-actions">
+                                    <button class="am-card-btn am-card-insert" title="插入到代码"
+                                        @click.stop="insertAsset(asset)">插入</button>
+                                    <button class="am-card-btn am-card-copy" title="复制引用代码"
+                                        @click.stop="copyRef(asset)">复制</button>
+                                    <button class="am-card-btn am-card-del" title="删除"
+                                        @click.stop="removeAsset(asset)">🗑</button>
                                 </div>
                             </div>
+                        </div>
 
-                            <!-- 详情侧栏 -->
-                            <Transition name="am-detail">
-                                <div v-if="selectedAsset" class="am-detail">
-                                    <div class="am-detail-header">
-                                        <span>资源详情</span>
-                                        <button class="am-detail-close"
-                                            @click="selectedId = null; selectedAsset = null">✕</button>
-                                    </div>
-                                    <div class="am-detail-preview">
-                                        <img v-if="selectedAsset.type === 'image'" :src="selectedAsset.data_uri"
-                                            class="am-detail-img" />
-                                        <audio v-else-if="selectedAsset.type === 'audio'" :src="selectedAsset.data_uri"
-                                            controls class="am-detail-audio" />
-                                        <pre v-else-if="selectedAsset.type === 'json' || selectedAsset.type === 'text'"
-                                            class="am-detail-text">{{ textPreview }}</pre>
-                                        <div v-else class="am-detail-other">{{ assetIcon(selectedAsset.type) }}</div>
-                                    </div>
-                                    <table class="am-detail-table">
-                                        <tr>
-                                            <td>名称</td>
-                                            <td>{{ selectedAsset.name }}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>类型</td>
-                                            <td>{{ selectedAsset.mime }}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>大小</td>
-                                            <td>{{ formatSize(selectedAsset.size) }}</td>
-                                        </tr>
-                                        <tr v-if="mode === 'cloud'">
-                                            <td>范围</td>
-                                            <td>{{ (selectedAsset as any).game_id == null ? '公共资源' : `游戏
-                                                #${(selectedAsset as any).game_id}` }}</td>
-                                        </tr>
-                                        <tr>
-                                            <td>{{ mode === 'local' ? '添加' : '上传' }}</td>
-                                            <td>{{ formatDate(selectedAsset.created_at) }}</td>
-                                        </tr>
-                                    </table>
-                                    <div class="am-detail-section">引用代码</div>
-                                    <div class="am-snippet-wrap">
-                                        <pre class="am-snippet">{{ currentSnippet }}</pre>
-                                        <button class="am-snippet-copy" @click="copySnippet">{{ copied ? '✅ 已复制' : '复制'
-                                            }}</button>
-                                    </div>
-                                    <div class="am-detail-actions">
-                                        <button class="am-detail-insert" @click="insertAsset(selectedAsset)">⬅
-                                            插入到代码</button>
-                                        <button class="am-detail-del" @click="removeAsset(selectedAsset)">🗑 删除</button>
-                                    </div>
-                                </div>
-                            </Transition>
-                        </template>
+                        <!-- 分页 -->
+                        <div v-if="totalPages > 1" class="am-pagination">
+                            <button class="am-pg" :disabled="page <= 1" @click="goPage(page - 1)">‹</button>
+                            <span class="am-pg-info">{{ page }} / {{ totalPages }}</span>
+                            <button class="am-pg" :disabled="page >= totalPages" @click="goPage(page + 1)">›</button>
+                        </div>
                     </div>
+
+                    <!-- ── 详情侧栏（选中资源时展开）── -->
+                    <Transition name="am-detail">
+                        <div v-if="selectedAsset" class="am-detail">
+                            <div class="am-detail-header">
+                                <span>资源详情</span>
+                                <button class="am-detail-close"
+                                    @click="selectedId = null; selectedAsset = null">✕</button>
+                            </div>
+
+                            <!-- 预览 -->
+                            <div class="am-detail-preview">
+                                <img v-if="selectedAsset.type === 'image' && selectedAsset.data_uri"
+                                    :src="selectedAsset.data_uri" class="am-detail-img" />
+                                <audio v-else-if="selectedAsset.type === 'audio' && selectedAsset.data_uri"
+                                    :src="selectedAsset.data_uri" controls class="am-detail-audio" />
+                                <pre v-else-if="selectedAsset.type === 'json' || selectedAsset.type === 'text'"
+                                    class="am-detail-text">
+                  {{ textPreview }}
+                </pre>
+                                <div v-else class="am-detail-other">{{ assetIcon(selectedAsset.type) }}</div>
+                            </div>
+
+                            <!-- 元信息 -->
+                            <table class="am-detail-table">
+                                <tbody>
+                                    <tr>
+                                        <td>名称</td>
+                                        <td>{{ selectedAsset.name }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td>类型</td>
+                                        <td>{{ selectedAsset.mime }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td>大小</td>
+                                        <td>{{ formatSize(selectedAsset.size) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td>范围</td>
+                                        <td>{{ selectedAsset.game_id == null ? '公共资源' : `游戏 #${selectedAsset.game_id}` }}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>上传</td>
+                                        <td>{{ formatDate(selectedAsset.created_at) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <!-- 引用代码 -->
+                            <div class="am-detail-section">引用代码</div>
+                            <div class="am-snippet-wrap">
+                                <pre class="am-snippet">{{ currentSnippet }}</pre>
+                                <button class="am-snippet-copy" @click="copySnippet">{{ copied ? '✅ 已复制' : '复制'
+                                }}</button>
+                            </div>
+
+                            <!-- 操作 -->
+                            <div class="am-detail-actions">
+                                <button class="am-detail-insert" @click="insertAsset(selectedAsset)">
+                                    ⬅ 插入到代码
+                                </button>
+                                <button class="am-detail-del" @click="removeAsset(selectedAsset)">
+                                    🗑 删除
+                                </button>
+                            </div>
+                        </div>
+                    </Transition>
 
                 </div>
             </div>
@@ -187,33 +185,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-// 云端 API
+import { ref, computed, watch, onMounted } from 'vue'
 import {
     listAssets, getAsset, uploadAsset, deleteAsset, getAssetQuota, getGameAssets,
     formatSize, assetIcon, assetSnippet,
     type Asset, type AssetType, type AssetQuota,
 } from '@/api/assets'
-// 本地 Store
-import { useLocalAssetsStore, type LocalAsset, type LocalAssetType } from '@/stores/localAssets'
 
 // ── Props / Emits ─────────────────────────────────────────────
-const props = withDefaults(defineProps<{
+const props = defineProps<{
     open: boolean
-    mode?: 'local' | 'cloud'   // 默认 cloud（向后兼容）
     gameId?: number | null
-}>(), {
-    mode: 'cloud',
-    gameId: null,
-})
+}>()
 
 const emit = defineEmits<{
     (e: 'update:open', val: boolean): void
-    (e: 'insert', payload: { snippet: string; asset: Asset | LocalAsset }): void
+    (e: 'insert', payload: { snippet: string; asset: Asset }): void
 }>()
-
-// ── 本地 Store（本地模式时使用）──────────────────────────────
-const localStore = useLocalAssetsStore()
 
 // ── 常量 ──────────────────────────────────────────────────────
 const ACCEPT_MIME = [
@@ -221,6 +209,8 @@ const ACCEPT_MIME = [
     'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm',
     'application/json', 'text/plain', 'text/csv',
 ].join(',')
+
+const acceptStr = ACCEPT_MIME
 
 const typeFilters = [
     { value: '', icon: '🗂', label: '全部' },
@@ -231,19 +221,20 @@ const typeFilters = [
     { value: 'other', icon: '📦', label: '其他' },
 ]
 
-const PAGE_SIZE = 24
-
 // ── 状态 ──────────────────────────────────────────────────────
 const loading = ref(false)
-const cloudAssets = ref<Asset[]>([])
-const cloudTotal = ref(0)
-const cloudQuota = ref<AssetQuota>({ used: 0, limit: 100 * 1024 * 1024, pct: 0 })
+const assets = ref<Asset[]>([])
+const previews = ref<Record<number, string>>({})   // id → data_uri（懒加载）
+const quota = ref<AssetQuota>({ used: 0, limit: 100 * 1024 * 1024, pct: 0 })
 const filterType = ref<string>('')
 const scope = ref<'game' | 'all'>(props.gameId != null ? 'game' : 'all')
 const page = ref(1)
+const pageSize = 24
+const total = ref(0)
+const totalPages = computed(() => Math.ceil(total.value / pageSize))
 
-const selectedId = ref<string | number | null>(null)
-const selectedAsset = ref<Asset | LocalAsset | null>(null)
+const selectedId = ref<number | null>(null)
+const selectedAsset = ref<Asset | null>(null)
 const textPreview = ref('')
 const copied = ref(false)
 
@@ -253,160 +244,126 @@ const uploadTipClass = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const bodyRef = ref<HTMLElement | null>(null)
 
-// ── 统一"当前模式的资源列表" ───────────────────────────────────
-const displayAssets = computed<Array<Asset | LocalAsset>>(() => {
-    if (props.mode === 'local') {
-        return localStore.filterByType(filterType.value as LocalAssetType | '')
-    }
-    return cloudAssets.value
-})
-
-const totalPages = computed(() =>
-    props.mode === 'local'
-        ? Math.ceil(displayAssets.value.length / PAGE_SIZE)
-        : Math.ceil(cloudTotal.value / PAGE_SIZE)
-)
-
-const pagedAssets = computed<Array<Asset | LocalAsset>>(() => {
-    if (props.mode === 'local') {
-        const start = (page.value - 1) * PAGE_SIZE
-        return displayAssets.value.slice(start, start + PAGE_SIZE)
-    }
-    return cloudAssets.value  // 云端分页由后端控制
-})
-
-// ── 用量 ──────────────────────────────────────────────────────
-const quota = computed<AssetQuota>(() =>
-    props.mode === 'local' ? localStore.quota : cloudQuota.value
-)
+// ── 配额颜色 ─────────────────────────────────────────────────
 const quotaClass = computed(() => {
     if (quota.value.pct >= 90) return 'quota-danger'
     if (quota.value.pct >= 70) return 'quota-warn'
     return 'quota-ok'
 })
 
-// ── 代码片段（统一处理本地/云端）─────────────────────────────
+// ── 代码片段 ─────────────────────────────────────────────────
 const currentSnippet = computed(() => {
     if (!selectedAsset.value) return ''
-    const a = selectedAsset.value
-    if (!a.data_uri) return `/* 资源加载中... */`
-    return buildSnippet(a)
+    if (selectedAsset.value.data_uri) return assetSnippet(selectedAsset.value)
+    // 未获取 data_uri 时返回引用方式
+    return `/* 资源 ID: ${selectedAsset.value.id} */
+fetch('/api/assets/${selectedAsset.value.id}')
+  .then(r => r.json())
+  .then(d => { /* 使用 d.data_uri */ })`
 })
 
-function buildSnippet(asset: Asset | LocalAsset): string {
-    const uri = asset.data_uri
-    if (!uri) return `/* 请先获取资源详情 */`
-    switch (asset.type) {
-        case 'image': return `<img src="${uri}" alt="${asset.name}" />`
-        case 'audio': return `<audio src="${uri}" controls></audio>`
-        default: return uri
-    }
-}
-
-// ── 加载云端资源 ──────────────────────────────────────────────
-async function loadCloudAssets() {
+// ── 加载资源列表 ─────────────────────────────────────────────
+async function loadAssets() {
     loading.value = true
     try {
         let result
         if (scope.value === 'game' && props.gameId != null) {
+            // 游戏维度：获取该游戏+公共资源
             result = await getGameAssets(props.gameId)
-            cloudAssets.value = result.list
-            cloudTotal.value = result.list.length
+            assets.value = result.list
+            total.value = result.list.length
         } else {
             result = await listAssets({
                 type: filterType.value as AssetType || undefined,
                 page: page.value,
-                limit: PAGE_SIZE,
+                limit: pageSize,
             })
-            cloudAssets.value = result.list
-            cloudTotal.value = result.total
+            assets.value = result.list
+            total.value = result.total
         }
-        // 懒加载图片预览
-        loadCloudImagePreviews()
+
+        // 懒加载图片预览（只获取列表，data_uri 通过详情接口按需拉取）
+        loadImagePreviews()
     } catch (e: any) {
-        showTip(`加载失败：${e.message}`, 'tip-err')
+        showUploadTip(`加载失败：${e.message}`, 'tip-err')
     } finally {
         loading.value = false
     }
 }
 
-async function loadCloudImagePreviews() {
-    const imgs = cloudAssets.value.filter(a => a.type === 'image' && !a.data_uri)
+// 只加载图片类型的预览（其他类型用 icon）
+async function loadImagePreviews() {
+    const imgs = assets.value.filter(a => a.type === 'image' && !previews.value[a.id])
+    // 批量并发获取，最多同时 5 个
     const batch = 5
     for (let i = 0; i < imgs.length; i += batch) {
-        await Promise.all(imgs.slice(i, i + batch).map(async asset => {
-            try {
-                const detail = await getAsset(asset.id as number)
-                const idx = cloudAssets.value.findIndex(a => a.id === asset.id)
-                if (idx !== -1) cloudAssets.value[idx] = detail
-            } catch { }
-        }))
+        await Promise.all(
+            imgs.slice(i, i + batch).map(async asset => {
+                try {
+                    const detail = await getAsset(asset.id)
+                    if (detail.data_uri) previews.value[asset.id] = detail.data_uri
+                } catch { }
+            })
+        )
     }
 }
 
-async function loadCloudQuota() {
-    try { cloudQuota.value = await getAssetQuota() } catch { }
+// 加载配额
+async function loadQuota() {
+    try {
+        quota.value = await getAssetQuota()
+    } catch { }
 }
 
-async function loadAssets() {
-    if (props.mode === 'local') {
-        // 本地模式：store 直接响应式，无需异步加载
-        loading.value = false
-        return
-    }
-    await loadCloudAssets()
+async function goPage(p: number) {
+    page.value = p
+    await loadAssets()
+    bodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-// ── 选中资源 ──────────────────────────────────────────────────
-async function selectAsset(asset: Asset | LocalAsset) {
-    const id = asset.id
-    if (selectedId.value === id) {
+// ── 选中资源 ─────────────────────────────────────────────────
+async function selectAsset(asset: Asset) {
+    if (selectedId.value === asset.id) {
         selectedId.value = null
         selectedAsset.value = null
         return
     }
-    selectedId.value = id
-    selectedAsset.value = asset
+    selectedId.value = asset.id
+    selectedAsset.value = asset   // 先显示基本信息
 
-    if (props.mode === 'local') {
-        // 本地资源已有完整 data_uri，直接处理文本预览
-        if (asset.type === 'json' || asset.type === 'text') {
-            const raw = (asset as LocalAsset).data_uri.split(',')[1] ?? ''
+    // 异步拉取完整详情（含 data_uri）
+    try {
+        const detail = await getAsset(asset.id)
+        selectedAsset.value = detail
+        if (detail.type === 'text' || detail.type === 'json') {
+            // 解码 base64 预览文本
+            const raw = detail.data_uri?.split(',')[1] ?? ''
             try { textPreview.value = atob(raw).slice(0, 2000) } catch { textPreview.value = raw.slice(0, 200) }
         }
-    } else {
-        // 云端：异步拉详情获取 data_uri
-        try {
-            const detail = await getAsset(asset.id as number)
-            selectedAsset.value = detail
-            if (detail.type === 'json' || detail.type === 'text') {
-                const raw = detail.data_uri?.split(',')[1] ?? ''
-                try { textPreview.value = atob(raw).slice(0, 2000) } catch { textPreview.value = raw.slice(0, 200) }
-            }
-        } catch { }
-    }
+    } catch { }
 }
 
-// ── 插入 ──────────────────────────────────────────────────────
-async function insertAsset(asset: Asset | LocalAsset) {
+// ── 插入 ─────────────────────────────────────────────────────
+async function insertAsset(asset: Asset) {
+    // 确保有 data_uri
     let full = asset
-    if (props.mode === 'cloud' && !(asset as Asset).data_uri) {
-        try { full = await getAsset(asset.id as number) } catch { }
+    if (!asset.data_uri) {
+        try { full = await getAsset(asset.id) } catch { }
     }
-    const snippet = buildSnippet(full)
+    const snippet = assetSnippet(full)
     emit('insert', { snippet, asset: full })
     emit('update:open', false)
 }
 
-// ── 复制 ──────────────────────────────────────────────────────
-async function copyRef(asset: Asset | LocalAsset) {
+// ── 复制引用 ─────────────────────────────────────────────────
+async function copyRef(asset: Asset) {
     let full = asset
-    if (props.mode === 'cloud' && !(asset as Asset).data_uri) {
-        try { full = await getAsset(asset.id as number) } catch { }
+    if (!asset.data_uri) {
+        try { full = await getAsset(asset.id) } catch { }
     }
-    const snippet = buildSnippet(full)
+    const snippet = assetSnippet(full)
     await navigator.clipboard.writeText(snippet).catch(() => { })
-    showTip('✅ 已复制引用代码', 'tip-ok')
+    showUploadTip('✅ 已复制引用代码', 'tip-ok')
 }
 
 async function copySnippet() {
@@ -416,91 +373,78 @@ async function copySnippet() {
     setTimeout(() => { copied.value = false }, 2000)
 }
 
-// ── 上传 ──────────────────────────────────────────────────────
-function triggerUpload() { fileInputRef.value?.click() }
+// ── 上传 ─────────────────────────────────────────────────────
+function triggerUpload() {
+    fileInputRef.value?.click()
+}
 
 async function handleFileChange(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0]
     if (!file) return
+
+    // 客户端预检：2 MB
+    if (file.size > 2 * 1024 * 1024) {
+        showUploadTip('文件超过 2 MB 上限', 'tip-err')
+        return
+    }
+
     uploading.value = true
     uploadTip.value = ''
+
     try {
-        if (props.mode === 'local') {
-            // ── 本地模式：存入 localStorage ──────────────────────────
-            const asset = await localStore.uploadFile(file)
-            showTip(`✅ 已添加到本地：${asset.name}（${formatSize(asset.size)}）`, 'tip-ok')
-            // store 响应式，自动刷新
-        } else {
-            // ── 云端模式：上传到服务器 ────────────────────────────────
-            if (file.size > 2 * 1024 * 1024) {
-                showTip('文件超过 2MB 上限', 'tip-err')
-                return
-            }
-            const asset = await uploadAsset(file, props.gameId ?? null)
-            showTip(`✅ 上传成功：${asset.name}（${formatSize(asset.size)}）`, 'tip-ok')
-            await loadCloudQuota()
-            await loadAssets()
-        }
+        const asset = await uploadAsset(file, props.gameId ?? null)
+        showUploadTip(`✅ 上传成功：${asset.name}（${formatSize(asset.size)}）`, 'tip-ok')
+        await loadQuota()
+        await loadAssets()
     } catch (e: any) {
-        showTip(`❌ ${e.message}`, 'tip-err')
+        showUploadTip(`❌ ${e.message}`, 'tip-err')
     } finally {
         uploading.value = false
         if (fileInputRef.value) fileInputRef.value.value = ''
     }
 }
 
-// ── 删除 ──────────────────────────────────────────────────────
-async function removeAsset(asset: Asset | LocalAsset) {
-    if (!confirm(`确认删除资源「${asset.name}」？\n已嵌入代码中的引用不会自动移除。`)) return
+// ── 删除 ─────────────────────────────────────────────────────
+async function removeAsset(asset: Asset) {
+    if (!confirm(`确认删除资源「${asset.name}」？
+已嵌入游戏代码中的引用不会自动移除。`)) return
     try {
-        if (props.mode === 'local') {
-            localStore.remove(asset.id as string)
-        } else {
-            await deleteAsset(asset.id as number)
-            await loadCloudQuota()
-            await loadAssets()
-        }
+        await deleteAsset(asset.id)
         if (selectedId.value === asset.id) {
             selectedId.value = null
             selectedAsset.value = null
         }
-        showTip('🗑 删除成功', 'tip-ok')
+        delete previews.value[asset.id]
+        await loadQuota()
+        await loadAssets()
+        showUploadTip('🗑 删除成功', 'tip-ok')
     } catch (e: any) {
-        showTip(`❌ ${e.message}`, 'tip-err')
+        showUploadTip(`❌ ${e.message}`, 'tip-err')
     }
 }
 
-// ── 分页 ──────────────────────────────────────────────────────
-async function goPage(p: number) {
-    page.value = p
-    if (props.mode === 'cloud') await loadAssets()
-    bodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
-}
-
 // ── 工具 ──────────────────────────────────────────────────────
-function showTip(msg: string, cls: string) {
+function showUploadTip(msg: string, cls: string) {
     uploadTip.value = msg
     uploadTipClass.value = cls
     setTimeout(() => { uploadTip.value = '' }, 4000)
 }
+
 function formatDate(dt: string) {
     if (!dt) return '—'
     return new Date(dt).toLocaleDateString('zh-CN')
 }
 
-// ── 生命周期 ──────────────────────────────────────────────────
+// ── 生命周期 ─────────────────────────────────────────────────
 watch(() => props.open, async (v) => {
-    if (!v) { document.body.style.overflow = ''; return }
-    document.body.style.overflow = 'hidden'
-    scope.value = props.gameId != null ? 'game' : 'all'
-    page.value = 1
-    filterType.value = ''
-    selectedId.value = null
-    selectedAsset.value = null
-    if (props.mode === 'cloud') {
-        await Promise.all([loadCloudQuota(), loadAssets()])
+    if (v) {
+        scope.value = props.gameId != null ? 'game' : 'all'
+        page.value = 1
+        await Promise.all([loadQuota(), loadAssets()])
+        document.body.style.overflow = 'hidden'
+    } else {
+        document.body.style.overflow = ''
     }
-    // 本地模式：store 已持久化，直接展示，无需异步
 })
 </script>
 
@@ -510,7 +454,7 @@ watch(() => props.open, async (v) => {
     position: fixed;
     inset: 0;
     z-index: 10000;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.45);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -559,23 +503,6 @@ watch(() => props.open, async (v) => {
     color: var(--sakura-600, #c44d75);
 }
 
-.am-mode-tag {
-    font-size: 0.72rem;
-    padding: 2px 9px;
-    border-radius: 10px;
-    font-weight: 700;
-}
-
-.mode-local {
-    background: #d1fae5;
-    color: #065f46;
-}
-
-.mode-cloud {
-    background: #dbeafe;
-    color: #1e40af;
-}
-
 .am-scope-tag {
     font-size: 0.72rem;
     padding: 2px 8px;
@@ -606,28 +533,31 @@ watch(() => props.open, async (v) => {
     transition: width 0.4s;
 }
 
+.quota-ok .am-quota-fill,
+.quota-ok {
+    color: #059669;
+}
+
 .quota-ok .am-quota-fill {
     background: #059669;
+}
+
+.quota-warn .am-quota-fill,
+.quota-warn {
+    color: #d97706;
 }
 
 .quota-warn .am-quota-fill {
     background: #d97706;
 }
 
-.quota-danger .am-quota-fill {
-    background: #dc2626;
-}
-
-.quota-ok {
-    color: #059669;
-}
-
-.quota-warn {
-    color: #d97706;
-}
-
+.quota-danger .am-quota-fill,
 .quota-danger {
     color: #dc2626;
+}
+
+.quota-danger .am-quota-fill {
+    background: #dc2626;
 }
 
 .am-quota-text {
@@ -706,8 +636,8 @@ watch(() => props.open, async (v) => {
     font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
-    box-shadow: 0 3px 10px rgba(196, 77, 117, 0.25);
     transition: all 0.2s;
+    box-shadow: 0 3px 10px rgba(196, 77, 117, 0.25);
 }
 
 .am-upload-btn:hover:not(:disabled) {
@@ -742,26 +672,33 @@ watch(() => props.open, async (v) => {
     color: #dc2626;
 }
 
-/* ── 主体 ───────────────────────────────────────────────────── */
+/* ── 主体（网格区+详情侧栏）── */
 .am-body {
     flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
     display: flex;
-    overflow: hidden;
+    flex-direction: column;
+    gap: 12px;
 }
 
-.am-loading,
+.am-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--ink-400, #aaa);
+}
+
 .am-empty {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
     color: var(--ink-300, #ccc);
-}
-
-.am-loading {
-    flex-direction: row;
 }
 
 .am-empty-icon {
@@ -777,16 +714,7 @@ watch(() => props.open, async (v) => {
     font-size: 0.8rem;
 }
 
-/* 网格区 */
-.am-grid-wrap {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
+/* 资源网格 */
 .am-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -948,6 +876,15 @@ watch(() => props.open, async (v) => {
     flex-direction: column;
     overflow-y: auto;
     background: var(--sakura-50, #fff5f8);
+}
+
+/* 详情覆盖主体布局：当详情显示时，am-body 改为 row */
+.am-panel:has(.am-detail) .am-body {
+    flex-direction: row;
+}
+
+.am-panel:has(.am-detail) .am-body> :not(.am-detail) {
+    flex: 1;
 }
 
 .am-detail-header {
@@ -1119,7 +1056,7 @@ watch(() => props.open, async (v) => {
     background: #fee2e2;
 }
 
-/* ── 动画 ───────────────────────────────────────────────────── */
+/* 动画 */
 .am-spin {
     animation: spin 1s linear infinite;
     display: inline-block;
@@ -1145,7 +1082,6 @@ watch(() => props.open, async (v) => {
 .am-detail-enter-active,
 .am-detail-leave-active {
     transition: all 0.22s ease;
-    overflow: hidden;
 }
 
 .am-detail-enter-from,
