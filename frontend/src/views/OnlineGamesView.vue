@@ -455,7 +455,8 @@ async function toggleGame(game: { id: number; name: string; is_active: number })
 
 // ── 永久删除（原版保持不变）──────────────────────────────────
 async function deleteGame(game: { id: number; name: string }) {
-    if (!confirm(`确认永久删除游戏「${game.name}」？\n此操作不可恢复，存档数据也将一并清除。`)) return
+    if (!confirm(`确认永久删除游戏「${game.name}」？
+此操作不可恢复，存档数据也将一并清除。`)) return
     try {
         await adminDeleteGame(game.id)
         await loadGames(store.pagination.page)
@@ -505,7 +506,8 @@ async function batchToggle(active: boolean) {
 
 async function batchDelete() {
     const ids = Array.from(selectedIds)
-    if (!confirm(`确认永久删除 ${ids.length} 个游戏？\n此操作不可恢复！`)) return
+    if (!confirm(`确认永久删除 ${ids.length} 个游戏？
+此操作不可恢复！`)) return
     let done = 0
     for (const id of ids) {
         try { await adminDeleteGame(id); done++ } catch { /* skip */ }
@@ -556,7 +558,8 @@ async function doExport(type: 'json' | 'csv' | 'backup') {
         if (type === 'csv')    await exportGamesCsv()
         if (type === 'backup') await exportGamesBackup()
     } catch (e: any) {
-        alert(`导出失败：${e.message}\n请确认管理员登录状态。`)
+        alert(`导出失败：${e.message}
+请确认管理员登录状态。`)
     }
 }
 
@@ -604,9 +607,9 @@ const codeBytesClass = computed(() => {
     return 'bytes-ok'
 })
 
-const codeLines = computed(() =>
-    editForm.value.game_code ? editForm.value.game_code.split('\n').length : 0
-)
+const codeLines = computed(() => {
+    return editForm.value.game_code ? editForm.value.game_code.split('').length : 0
+})
 
 async function openEdit(game: any) {
     editForm.value = {
@@ -735,7 +738,7 @@ function onAssetInsert({ snippet }: { snippet: string }) {
             textarea.focus()
         }, 0)
     } else {
-        editForm.value.game_code = code + (code.endsWith('\n') ? '' : '\n') + snippet
+        editForm.value.game_code = code + (code.endsWith('') ? '' : '') + snippet
     }
     showCode.value = true
 }
@@ -1488,23 +1491,24 @@ function onAssetInsert({ snippet }: { snippet: string }) {
     border: 1.5px solid var(--border, #f0d6df);
     border-top: none;
     border-radius: 0 0 10px 10px;
-    overflow: hidden;
+    /* overflow: hidden 已移除：原来会裁切 textarea，导致无法正常编辑 */
 }
 
 .form-code {
     width: 100%;
+    min-height: 320px;   /* 修复：确保代码区最小高度可见，不被截断 */
     padding: 12px;
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     font-size: 0.78rem;
     line-height: 1.6;
-    color: #1a1a2e;
-    background: #1e1e2e;
     color: #cdd6f4;
+    background: #1e1e2e;
     border: none;
     outline: none;
     resize: vertical;
     box-sizing: border-box;
     display: block;
+    cursor: text;        /* 修复：明确显示文本光标，提示可编辑 */
 }
 
 /* 弹窗底栏（原版） */
@@ -1643,7 +1647,7 @@ function onAssetInsert({ snippet }: { snippet: string }) {
 .expand-enter-to,
 .expand-leave-from {
     opacity: 1;
-    max-height: 600px;
+    max-height: 1200px;  /* 修复：原600px会截断18行代码编辑区，扩大为1200px */
 }
 
 /* ── 响应式 ──────────────────────────────────────────────────── */

@@ -71,7 +71,7 @@ router.get('/', [
             success: true,
             data: {
                 list: rows,
-                pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+                pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
             },
         })
     } catch (err) {

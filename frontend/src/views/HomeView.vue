@@ -8,7 +8,7 @@
                     发现有趣的小游戏
                 </h1>
                 <p class="hero-sub">精心收录的趣味游戏合集，随时随地开玩</p>
-                <SearchBar v-model="searchText" @search="onSearch" @tag="onTagSearch" class="hero-search" />
+                <SearchBar v-model="searchText" @search="onSearch" @tag="onTagSearch" :tags="allTags" class="hero-search" />
             </div>
         </section>
 

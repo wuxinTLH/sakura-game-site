@@ -11,6 +11,13 @@
                 你寻找的页面已随风飘落，<br />
                 或许从未在这里停留过……
             </p>
+
+            <!-- 倒计时自动跳转 -->
+            <p class="countdown-tip">
+                {{ countdown }} 秒后自动返回
+                <span class="countdown-target">{{ historyAvailable ? '上一页' : '首页' }}</span>
+            </p>
+
             <div class="action-buttons">
                 <button class="btn-primary" @click="goHome">
                     🏠 回到首页
@@ -29,20 +36,48 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
+const TOTAL = 5
+const countdown = ref(TOTAL)
+const historyAvailable = ref(window.history.length > 1)
+
+let timer: ReturnType<typeof setInterval> | null = null
+
+function startCountdown() {
+    timer = setInterval(() => {
+        countdown.value--
+        if (countdown.value <= 0) {
+            clearCountdown()
+            goBack()
+        }
+    }, 1000)
+}
+
+function clearCountdown() {
+    if (timer) { clearInterval(timer); timer = null }
+}
+
 function goHome() {
+    clearCountdown()
     router.push('/')
 }
 
 function goBack() {
+    clearCountdown()
     if (window.history.length > 1) {
         router.back()
     } else {
         router.push('/')
     }
+}
+
+// 用户主动点击按钮时取消倒计时
+function handleUserClick() {
+    clearCountdown()
 }
 
 function petalStyle(i: number) {
@@ -58,6 +93,9 @@ function petalStyle(i: number) {
         opacity: 0.6 + (i % 4) * 0.1,
     }
 }
+
+onMounted(startCountdown)
+onUnmounted(clearCountdown)
 </script>
 
 <style scoped>
@@ -228,6 +266,19 @@ function petalStyle(i: number) {
 
 .hint-links a:hover {
     background: rgba(255, 182, 193, 0.35);
+    color: #c25272;
+}
+
+/* 倒计时 */
+.countdown-tip {
+    font-size: 0.88rem;
+    color: #a06070;
+    margin-bottom: 1.2rem;
+    letter-spacing: 0.02em;
+}
+
+.countdown-target {
+    font-weight: 700;
     color: #c25272;
 }
 

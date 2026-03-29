@@ -41,21 +41,18 @@ const router = createRouter({
             component: () => import('@/views/AdminView.vue'),
             meta: { title: '站点管理 - 桜游戏屋' },
         },
-        // ── 新增：在线游戏管理页（需管理员登录）──────────────────
         {
             path: '/online-games',
             name: 'online-games',
             component: () => import('@/views/OnlineGamesView.vue'),
             meta: { title: '在线游戏管理 · 桜', requiresAdmin: true },
         },
-        { path: '/:pathMatch(.*)*', redirect: '/' },
         {
             path: '/admin/assets',
             name: 'admin-assets',
             component: () => import('@/views/AdminAssetsView.vue'),
             meta: { title: '素材管理 · 桜', requiresAdmin: true },
         },
-        // ── 404 兜底，必须放最后 ─────────────────────────────────────────
         {
             path: '/:pathMatch(.*)*',
             name: 'not-found',
@@ -70,13 +67,18 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-    // 设置页面标题
     if (to.meta?.title) {
         document.title = to.meta.title as string
     }
 
-    // 功能开关守卫：被管理员关闭的页面重定向到首页
-    const settingKey = to.meta?.requiresSetting as string | undefined
+    if (to.meta?.requiresAdmin) {
+        const token = localStorage.getItem('admin_token')
+        if (!token) {
+            next({ name: 'admin', query: { redirect: to.fullPath } })
+            return
+        }
+    }
+    const settingKey = to.meta?.requireSetting as string | undefined
     if (settingKey) {
         const adminStore = useAdminStore()
         const enabled = adminStore.settings[settingKey as keyof typeof adminStore.settings]

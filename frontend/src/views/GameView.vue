@@ -5,7 +5,7 @@
             <div class="loading-petals">
                 <span v-for="i in 5" :key="i" :style="{ animationDelay: i * 0.15 + 's' }">🌸</span>
             </div>
-            <p>游戏加载中…</p>
+            <p>{{ cacheHit ? '从缓存加载…' : '游戏加载中…' }}</p>
         </div>
 
         <!-- ── 错误态 ──────────────────────────────────────────────── -->
@@ -33,9 +33,30 @@
             <!-- 游戏信息栏 -->
             <div class="game-meta-bar">
                 <div class="game-meta-inner">
+                    <!-- 封面：有图显示图片，无图显示桜 SVG（修复：原版只有 emoji） -->
                     <div class="gm-cover">
-                        <img v-if="game.image_url" :src="game.image_url" :alt="game.name" />
-                        <span v-else class="gm-emoji">🎮</span>
+                        <img v-if="game.image_url && !coverImgError"
+                             :src="game.image_url"
+                             :alt="game.name"
+                             @error="coverImgError = true" />
+                        <svg v-else viewBox="0 0 96 60" xmlns="http://www.w3.org/2000/svg" class="gm-default-svg">
+                            <defs>
+                                <linearGradient id="gmBg" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%" stop-color="#ffe4ec"/>
+                                    <stop offset="100%" stop-color="#ffd6e8"/>
+                                </linearGradient>
+                            </defs>
+                            <rect width="96" height="60" fill="url(#gmBg)"/>
+                            <g transform="translate(48,28)">
+                                <ellipse cx="0" cy="-11" rx="4.5" ry="8" fill="#f48fb1" opacity=".85" transform="rotate(0)"/>
+                                <ellipse cx="0" cy="-11" rx="4.5" ry="8" fill="#f48fb1" opacity=".85" transform="rotate(72)"/>
+                                <ellipse cx="0" cy="-11" rx="4.5" ry="8" fill="#f48fb1" opacity=".85" transform="rotate(144)"/>
+                                <ellipse cx="0" cy="-11" rx="4.5" ry="8" fill="#f48fb1" opacity=".85" transform="rotate(216)"/>
+                                <ellipse cx="0" cy="-11" rx="4.5" ry="8" fill="#f48fb1" opacity=".85" transform="rotate(288)"/>
+                                <circle cx="0" cy="0" r="4.5" fill="#fff"/>
+                                <circle cx="0" cy="0" r="2.5" fill="#f8bbd0"/>
+                            </g>
+                        </svg>
                     </div>
                     <div class="gm-info">
                         <h1 class="gm-title">{{ game.name }}</h1>
@@ -46,6 +67,10 @@
                         <div class="gm-stats">
                             <span>👤 {{ game.author }}</span>
                             <span>▶ 已玩 {{ formatCount(game.play_count) }} 次</span>
+                            <!-- 缓存命中标识（修复：新增） -->
+                            <span v-if="cacheHit" class="cache-badge" title="本次从本地缓存加载，无需重新下载">
+                                ⚡ 已缓存
+                            </span>
                         </div>
                     </div>
                     <div class="gm-actions">
@@ -60,8 +85,14 @@
             <!-- 游戏画布 -->
             <div class="game-stage" ref="stageRef">
                 <div class="stage-inner" :class="{ fullscreen: isFullscreen }">
-                    <iframe ref="iframeRef" class="game-iframe" sandbox="allow-scripts allow-same-origin allow-modals"
-                        :srcdoc="game.game_code" frameborder="0" allowfullscreen title="game" @load="onIframeLoad" />
+                    <!-- 修复：srcdoc 绑定 gameCode（缓存版），而非直接 game.game_code -->
+                    <iframe ref="iframeRef" class="game-iframe"
+                            sandbox="allow-scripts allow-same-origin allow-modals"
+                            :srcdoc="gameCode"
+                            frameborder="0"
+                            allowfullscreen
+                            title="game"
+                            @load="onIframeLoad" />
                     <!-- 全屏关闭按钮 -->
                     <button v-if="isFullscreen" class="fs-close-btn" @click="toggleFullscreen">✕ 退出全屏</button>
                 </div>
@@ -74,17 +105,21 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchGame, recordPlay } from '@/api/games'
+import { getCachedGame, setCachedGame } from '@/composables/useGameCache'
 import type { Game } from '@/types/game'
 
-const route = useRoute()
+const route  = useRoute()
 const router = useRouter()
 
-const game = ref<Game | null>(null)
-const loading = ref(true)
-const error = ref<string | null>(null)
-const iframeRef = ref<HTMLIFrameElement>()
-const stageRef = ref<HTMLElement>()
-const isFullscreen = ref(false)
+const game          = ref<Game | null>(null)
+const gameCode      = ref('')          // 实际渲染到 iframe 的代码（缓存或接口返回）
+const loading       = ref(true)
+const error         = ref<string | null>(null)
+const cacheHit      = ref(false)       // 是否命中本地缓存
+const coverImgError = ref(false)       // 封面图加载失败标志
+const iframeRef     = ref<HTMLIFrameElement>()
+const stageRef      = ref<HTMLElement>()
+const isFullscreen  = ref(false)
 
 const tagList = computed(() =>
     game.value?.tags
@@ -96,36 +131,61 @@ function formatCount(n: number) {
     return n >= 10000 ? (n / 10000).toFixed(1) + 'w' : n.toString()
 }
 
+// ── 核心加载逻辑（含缓存策略）────────────────────────────────────
 async function load() {
     const id = Number(route.params.id)
     if (!id) { router.replace('/'); return }
-    loading.value = true
-    error.value = null
+
+    loading.value       = true
+    error.value         = null
+    cacheHit.value      = false
+    coverImgError.value = false
+
     try {
-        const res = await fetchGame(id)
-        game.value = res.data
-        // 更新 title
-        document.title = res.data.name
-        // 异步记录游玩次数
-        recordPlay(id).catch(() => { })
+        // 1. 请求游戏详情（含 game_code，GET /api/games/:id 返回全字段）
+        const res  = await fetchGame(id)
+        const data = res.data
+        game.value = data
+        document.title = data.name
+
+        // 2. 缓存策略：仅对 game_type === 'html' 的离线游戏生效
+        const isOffline = data.game_type === 'html'
+
+        if (isOffline && data.updated_at) {
+            const cached = getCachedGame(id, data.updated_at)
+            if (cached) {
+                // 缓存命中：直接使用，跳过再次赋值
+                gameCode.value = cached
+                cacheHit.value = true
+                loading.value  = false
+                recordPlay(id).catch(() => {})
+                return
+            }
+        }
+
+        // 3. 缓存未命中或非离线游戏：使用接口返回的 game_code
+        gameCode.value = data.game_code ?? ''
+
+        // 4. 写入缓存（仅离线 HTML 游戏）
+        if (isOffline && data.game_code && data.updated_at) {
+            setCachedGame(id, data.game_code, data.updated_at)
+        }
+
+        loading.value = false
+        recordPlay(id).catch(() => {})
     } catch (e: any) {
-        error.value = e.message
-    } finally {
+        error.value   = e.message
         loading.value = false
     }
 }
 
 function onIframeLoad() {
-    // iframe 加载完毕，可以扩展处理
+    // iframe 加载完毕，可扩展处理（如注入存档 API）
 }
 
 function toggleFullscreen() {
     isFullscreen.value = !isFullscreen.value
-    if (isFullscreen.value) {
-        document.body.style.overflow = 'hidden'
-    } else {
-        document.body.style.overflow = ''
-    }
+    document.body.style.overflow = isFullscreen.value ? 'hidden' : ''
 }
 
 // ESC 退出全屏
@@ -140,7 +200,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     document.body.style.overflow = ''
-    document.addEventListener('keydown', handleKeydown)
+    document.removeEventListener('keydown', handleKeydown)   // 修复：原版误用 addEventListener
     document.title = '桜游戏屋'
 })
 
@@ -292,8 +352,11 @@ watch(() => route.params.id, load)
     object-fit: cover;
 }
 
-.gm-emoji {
-    font-size: 2rem;
+/* 默认封面 SVG */
+.gm-default-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 .gm-info {
@@ -339,9 +402,24 @@ watch(() => route.params.id, load)
 
 .gm-stats {
     display: flex;
+    align-items: center;
     gap: 14px;
     font-size: 0.78rem;
     color: var(--ink-400);
+    flex-wrap: wrap;
+}
+
+/* 缓存标识 */
+.cache-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #e8f5e9;
+    color: #388e3c;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border: 1px solid #a5d6a7;
 }
 
 .gm-actions {

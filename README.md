@@ -92,11 +92,7 @@ sakura-games-site/
 │       ├── main.ts
 │       └── shims-vue.d.ts
 ├── database/
-│   ├── init.sql                  # 建库建表（s_g_games）
-│   ├── saves.sql                 # 存档表（s_g_saves）
-│   ├── assets.sql                # 资源管理器表（s_g_assets）
-│   ├── game.sql                  # 内置游戏数据
-│   └── settings.sql              # 站点配置表
+│   ├── init.sql                  # 建库建表 (已将所有表整合，sql文件暂时保留)
 ├── package.json                  # 根目录：一键启动（concurrently）
 ├── .gitignore
 ├── LICENSE
@@ -155,14 +151,8 @@ cd sakura-games-site
 
 ```bash
 mysql -u root -p < database/init.sql
-mysql -u root -p < database/saves.sql
-mysql -u root -p < database/assets.sql
-mysql -u root -p < database/game.sql
-mysql -u root -p < database/settings.sql
 ```
 
-> `saves.sql` 创建游戏存档表 `s_g_saves`，如不需要服务端存档可跳过。
-> `assets.sql` 创建资源管理器表 `s_g_assets`，如不需要资源管理器功能可跳过。
 
 ### 3. 配置后端环境变量
 
@@ -215,8 +205,8 @@ app.use('/api/admin/login', loginLimiter)
 app.use('/api/admin',   adminRouter)
 app.use('/api/saves',   savesRouter)
 app.use('/api/assets',  assetsRouter)
-app.use('/api/tags',    tagsRouter)    // ★ 标签枚举
-app.use('/api/export',  exportRouter)  // ★ 数据导出
+app.use('/api/tags',    tagsRouter)  
+app.use('/api/export',  exportRouter)
 ```
 
 ### 5. 安装所有依赖

@@ -567,6 +567,22 @@ const localApiDoc: ApiGroup[] = [
             { method: 'DELETE', path: '/:id', auth: true, desc: '删除资源（不会自动移除已嵌入游戏代码的引用）', params: '-' },
         ],
     },
+    // ── 标签枚举接口（★ 新增）────────────────────────────────
+    {
+        group: '🏷 标签枚举接口', base: '/api', auth: false,
+        items: [
+            { method: 'GET', path: '/tags', auth: false, desc: '聚合数据库所有上架游戏标签（去重排序），末尾追加「其他」', params: '-' },
+        ],
+    },
+    // ── 数据导出接口（★ 新增）────────────────────────────────
+    {
+        group: '⬇ 数据导出接口', base: '/api/export', auth: true,
+        items: [
+            { method: 'GET', path: '/games/json', auth: true, desc: '导出游戏元数据 JSON（不含 game_code）', params: '-' },
+            { method: 'GET', path: '/games/csv', auth: true, desc: '导出游戏元数据 CSV（含 UTF-8 BOM，Excel 可直接打开）', params: '-' },
+            { method: 'GET', path: '/games/backup', auth: true, desc: '完整备份 JSON（含 game_code，用于迁移/灾备）', params: '-' },
+        ],
+    },
     // ── 管理员接口 ────────────────────────────────────────────
     {
         group: '🔐 管理员接口', base: '/api/admin', auth: true,

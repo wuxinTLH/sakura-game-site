@@ -377,7 +377,8 @@ function clearGameSaves(gameId: string, name: string) {
 }
 
 function removeGame(gameId: string, name: string) {
-  if (!confirm(`确认删除本地游戏「${name}」及其所有存档和进度？\n此操作不可恢复。`)) return
+  if (!confirm(`确认删除本地游戏「${name}」及其所有存档和进度？
+此操作不可恢复。`)) return
   localGamesStore.remove(gameId)
   localStorage.removeItem(SAVE_PREFIX + gameId)
   localStorage.removeItem(PROG_PREFIX + gameId)
@@ -397,13 +398,13 @@ function clearAllProgress() {
 }
 
 function clearGameCacheAll() {
-if (!confirm('确认清除所有离线游戏缓存？下次打开游戏时将重新下载。')) return
-clearAllGameCache()
-refresh()
+  if (!confirm('确认清除所有离线游戏缓存？下次打开游戏时将重新下载。')) return
+  clearAllGameCache()
+  refresh()
 }
 
 function clearAll() {
-  if (!confirm('确认清除全部本地数据？\n包括：本地游戏、存档、进度、草稿。\n此操作完全不可恢复！')) return
+  if (!confirm('确认清除全部本地数据？包括：本地游戏、存档、进度、草稿。此操作完全不可恢复！')) return
   // 只清除 sakura_ 前缀的键，保留其他应用数据
   const sakuraKeys = Object.keys(localStorage).filter(k => k.startsWith('sakura_') || k === 'admin_token')
   // admin_token 不清
