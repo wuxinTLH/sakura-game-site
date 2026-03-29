@@ -243,8 +243,9 @@ const storageOpen = ref(false)
 const expandGames = ref(false)
 
 // ── 管理员登录状态（控制导航项显示）─────────────────────────
-// 直接读 localStorage，与 admin store 的 token 机制一致
-const isAdminLoggedIn = computed(() => !!localStorage.getItem('admin_token'))
+// 修复：直接用 adminStore.isLoggedIn（响应式 ref），
+// 原版用 localStorage.getItem 不被 Vue 追踪，登录/登出后导航栏不会自动更新
+const isAdminLoggedIn = computed(() => adminStore.isLoggedIn)
 
 function openStorage() {
   refresh()

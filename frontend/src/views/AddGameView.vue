@@ -10,6 +10,12 @@
             </div>
         </section>
 
+        <!-- 未登录提示条 -->
+        <div v-if="!adminStore.isLoggedIn" class="login-warning-bar">
+            <span>⚠️ 上传游戏需要管理员权限</span>
+            <router-link to="/admin" class="login-warning-link">前往登录 →</router-link>
+        </div>
+
         <div class="add-content">
             <div class="add-form-wrap">
 
@@ -120,8 +126,10 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { uploadGame } from '@/api/games'
+import { useAdminStore } from '@/stores/admin'
 
 const router = useRouter()
+const adminStore = useAdminStore()
 
 // ── 文件 ──────────────────────────────────────────────────────────
 const fileInputRef = ref<HTMLInputElement>()
@@ -136,7 +144,7 @@ const fileIcon = computed(() => {
 })
 
 const previewLines = computed(() =>
-    fileContent.value.split('\n').slice(0, 30).join('\n')
+    fileContent.value.split('').slice(0, 30).join('')
 )
 
 function readFile(file: File) {
@@ -188,6 +196,12 @@ const errorMsg = ref('')
 
 async function submit() {
     if (!validate() || !selectedFile.value) return
+    // 修复：上传需要管理员权限，提前检查登录状态
+    if (!adminStore.isLoggedIn) {
+        result.value = 'error'
+        errorMsg.value = '上传游戏需要管理员登录，请先前往 /admin 完成登录'
+        return
+    }
     uploading.value = true
     result.value = null
 
@@ -215,6 +229,35 @@ async function submit() {
 </script>
 
 <style scoped>
+/* 未登录提示条 */
+.login-warning-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 12px 20px;
+    background: #fff8e1;
+    border-bottom: 2px solid #ffcc80;
+    font-size: 0.88rem;
+    color: #e65100;
+    font-weight: 500;
+}
+
+.login-warning-link {
+    padding: 5px 16px;
+    border-radius: 20px;
+    background: #ff9800;
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: background 0.2s;
+}
+
+.login-warning-link:hover {
+    background: #e65100;
+}
+
 /* Hero */
 .add-hero {
     background: linear-gradient(160deg, var(--sakura-100) 0%, #fff5f8 100%);

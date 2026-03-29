@@ -346,11 +346,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAdminStore, type SiteSettings, type AdminGame } from '@/stores/admin'
 // ★ 新增：素材管理页面组件
 import AdminAssetsView from '@/views/AdminAssetsView.vue'
 
 const store = useAdminStore()
+const route  = useRoute()
+const router = useRouter()
 
 // ── 标签页（★ 新增 assets Tab）────────────────────────────────────
 const tabs = [
@@ -387,6 +390,11 @@ async function doLogin() {
         password.value = ''
         await store.loadSettings()
         syncLocal()
+        // 修复：登录成功后跳回 redirect 目标页（如从 /online-games 被守卫重定向来的）
+        const redirect = route.query.redirect as string | undefined
+        if (redirect) {
+            router.replace(redirect)
+        }
     } catch (e: any) {
         loginError.value = e.message
     } finally {
