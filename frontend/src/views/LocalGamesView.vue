@@ -10,6 +10,12 @@
                 <button class="btn-new" @click="router.push('/editor')">
                     ✏️ 新建游戏
                 </button>
+                <!-- ★ 问题5：从 HTML 文件导入本地游戏 -->
+                <label class="btn-import">
+                    📂 导入游戏
+                    <input ref="importInputRef" type="file" accept=".html"
+                        class="import-file-input" @change="onImportFile" />
+                </label>
             </div>
         </section>
 
@@ -22,6 +28,11 @@
                 <button class="btn-go-editor" @click="router.push('/editor')">
                     去编辑器创建
                 </button>
+                <label class="btn-import btn-import-empty">
+                    📂 从文件导入 .html
+                    <input type="file" accept=".html"
+                        class="import-file-input" @change="onImportFile" />
+                </label>
             </div>
 
             <!-- 游戏列表 -->
@@ -83,12 +94,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
 import { useLocalGamesStore } from '@/stores/localGames'
 import type { LocalGame } from '@/stores/localGames'
 import { publishGame } from '@/api/games'
 import { useAdminStore } from '@/stores/admin'
-import { useToast } from '@/composables/useToast'
 
 const store = useLocalGamesStore()
 const router = useRouter()
@@ -98,6 +109,46 @@ const toast = useToast()
 const publishing = ref<string | null>(null)
 
 const playingGame = ref<LocalGame | null>(null)
+
+// ★ 问题5：从文件导入本地游戏
+const importInputRef = ref<HTMLInputElement>()
+
+function onImportFile(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+
+    if (!file.name.endsWith('.html')) {
+        toast.error('只支持导入 .html 文件')
+        return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+        toast.error('文件不能超过 10MB')
+        return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+        const code = reader.result as string
+        // 从 <title> 标签尝试提取游戏名，兜底用文件名
+        const titleMatch = code.match(/<title[^>]*>([^<]+)<\/title>/i)
+        const name = titleMatch?.[1]?.trim() || file.name.replace('.html', '')
+
+        store.save({
+            name,
+            description: '',
+            tags: '',
+            author: '',
+            image_url: '',
+            code,
+        })
+        toast.success(`「${name}」已导入到本地游戏`)
+    }
+    reader.onerror = () => toast.error('文件读取失败')
+    reader.readAsText(file, 'utf-8')
+
+    // 清空 input，允许重复选择同一文件
+    ;(e.target as HTMLInputElement).value = ''
+}
 
 function playGame(game: LocalGame) {
     playingGame.value = game
@@ -174,6 +225,35 @@ async function publishToOnline(game: LocalGame) {
     color: #888;
     font-size: 0.9rem;
 }
+
+/* ★ 问题5：导入按钮 */
+.btn-import {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 24px;
+    border-radius: 20px;
+    border: 2px solid var(--sakura-300, #f9b8cc);
+    color: var(--sakura-600, #c44d75);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface, #fff);
+    transition: all 0.2s;
+}
+
+.btn-import:hover {
+    background: var(--sakura-100, #fde8ef);
+    border-color: var(--sakura-500, #e87da0);
+}
+
+.btn-import-empty {
+    margin-top: 4px;
+    font-size: 0.85rem;
+    padding: 8px 20px;
+}
+
+.import-file-input { display: none; }
 
 .btn-new {
     margin-top: 6px;

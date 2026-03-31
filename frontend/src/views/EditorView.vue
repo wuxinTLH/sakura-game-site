@@ -126,6 +126,24 @@
                     <label>作者</label>
                     <input v-model="saveForm.author" placeholder="作者名称" />
                 </div>
+                <!-- ★ 问题4：封面图字段 -->
+                <div class="form-row">
+                    <label>封面图</label>
+                    <div class="cover-upload-row">
+                        <label class="cover-upload-btn">
+                            📁 上传图片
+                            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                                class="cover-file-input" @change="onCoverUpload" />
+                        </label>
+                        <input v-model="saveForm.image_url" class="cover-url-input"
+                            placeholder="或粘贴图片 URL" />
+                        <div v-if="saveForm.image_url" class="cover-thumb-preview">
+                            <img :src="saveForm.image_url" alt="封面预览"
+                                @error="saveForm.image_url = ''" />
+                        </div>
+                    </div>
+                    <p class="cover-hint">PNG/JPG/GIF/WebP，≤ 500KB</p>
+                </div>
                 <div class="modal-actions">
                     <button class="btn-cancel" @click="showSaveModal = false">取消</button>
                     <button class="btn-confirm" @click="confirmSave" :disabled="!saveForm.name.trim()">
@@ -328,6 +346,62 @@ const templates = [
     align-items: center; justify-content: center;
     min-height: 100vh; font-family: sans-serif;
   }
+/* ★ 问题4：封面图上传区 */
+.cover-upload-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.cover-upload-btn {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border, #f0d6df);
+    background: var(--surface, #fff);
+    color: var(--sakura-600, #c44d75);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.cover-upload-btn:hover { background: var(--sakura-100, #fde8ef); }
+
+.cover-file-input { display: none; }
+
+.cover-url-input {
+    flex: 1;
+    min-width: 120px;
+    padding: 6px 10px;
+    border: 1.5px solid var(--border, #f0d6df);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-family: inherit;
+    outline: none;
+}
+
+.cover-thumb-preview {
+    width: 60px;
+    height: 40px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border, #f0d6df);
+    flex-shrink: 0;
+}
+
+.cover-thumb-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cover-hint {
+    font-size: 0.72rem;
+    color: var(--ink-300, #ccc);
+    margin: 2px 0 0;
+}
 </style>
 </head>
 <body>
@@ -381,12 +455,12 @@ function applyTemplate(tpl: { name: string; code: string }) {
 
 // ── 保存弹窗 ──────────────────────────────────────────────────────
 const showSaveModal = ref(false)
-const saveForm = ref({ name: '', description: '', tags: '', author: '' })
+const saveForm = ref({ name: '', description: '', tags: '', author: '', image_url: '' })
 
 function openSaveModal() {
     if (editingId.value) {
         const g = store.getById(editingId.value)
-        if (g) saveForm.value = { name: g.name, description: g.description, tags: g.tags, author: g.author }
+        if (g) saveForm.value = { name: g.name, description: g.description, tags: g.tags, author: g.author, image_url: g.image_url || '' }
     }
     showSaveModal.value = true
 }
@@ -398,6 +472,7 @@ function confirmSave() {
         description: saveForm.value.description,
         tags: saveForm.value.tags,
         author: saveForm.value.author,
+        image_url: saveForm.value.image_url,   // ★ 问题4
         code: getValue(),
     })
     if (!editingId.value) editingId.value = store.list[0]?.id
@@ -405,6 +480,17 @@ function confirmSave() {
     showSaveModal.value = false
     localStorage.removeItem(DRAFT_KEY)
     draftTime.value = ''
+}
+
+// ★ 问题4：封面图上传（FileReader → base64）
+function onCoverUpload(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+    if (file.size > 500 * 1024) { alert('图片不能超过 500KB'); return }
+    const reader = new FileReader()
+    reader.onload = () => { saveForm.value.image_url = reader.result as string }
+    reader.readAsDataURL(file)
+    ;(e.target as HTMLInputElement).value = ''
 }
 
 // ── Ctrl+S 快捷键 ─────────────────────────────────────────────────
@@ -488,7 +574,7 @@ function onAssetInsert({ snippet }: { snippet: string; asset: LocalAsset }) {
     } else {
         // Level 3 兜底：追加到代码末尾
         const current = getValue()
-        setValue(current + (current.endsWith('\n') ? '' : '\n') + snippet)
+        setValue(current + (current.endsWith('') ? '' : '') + snippet)
     }
 
     // 触发预览刷新 & 标记未保存

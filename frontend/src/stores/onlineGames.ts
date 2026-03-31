@@ -34,8 +34,11 @@ export const useOnlineGamesStore = defineStore('onlineGames', () => {
     const total = ref(0)
     const pagination = ref({ page: 1, pages: 1 })
 
-    const activeCount = computed(() => games.value.filter(g => g.is_active).length)
-    const inactiveCount = computed(() => games.value.filter(g => !g.is_active).length)
+    // 修复(问题8)：原版从当前页数据过滤，翻页后数字会变，改为后端全量统计
+    const activeTotal   = ref(0)
+    const inactiveTotal = ref(0)
+    const activeCount   = computed(() => activeTotal.value)
+    const inactiveCount = computed(() => inactiveTotal.value)
 
     async function fetchGames(params: FetchParams = {}) {
         loading.value = true
@@ -65,9 +68,22 @@ export const useOnlineGamesStore = defineStore('onlineGames', () => {
         }
     }
 
+    async function fetchTotals() {
+        try {
+            const [resA, resI] = await Promise.all([
+                adminGetGames({ page: 1, limit: 1, search: 'active'   }),
+                adminGetGames({ page: 1, limit: 1, search: 'inactive' }),
+            ])
+            const da = resA?.data ?? resA
+            const di = resI?.data ?? resI
+            activeTotal.value   = da.total ?? 0
+            inactiveTotal.value = di.total ?? 0
+        } catch { /* 静默失败 */ }
+    }
+
     return {
         games, loading, total, pagination,
         activeCount, inactiveCount,
-        fetchGames,
+        fetchGames, fetchTotals,
     }
 })

@@ -200,7 +200,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: 'update:open', val: boolean): void
-    (e: 'insert', payload: { snippet: string; asset: Asset }): void
+    (e: 'insert', payload: { snippet: string; asset: Omit<Asset, 'id'> & { id: string } }): void
 }>()
 
 // ── 常量 ──────────────────────────────────────────────────────
@@ -351,7 +351,12 @@ async function insertAsset(asset: Asset) {
         try { full = await getAsset(asset.id) } catch { }
     }
     const snippet = assetSnippet(full)
-    emit('insert', { snippet, asset: full })
+    const compatibleAsset = {
+        ...full,
+        id: full.id.toString() // 数字转字符串
+    }
+    
+    emit('insert', { snippet, asset: compatibleAsset })
     emit('update:open', false)
 }
 

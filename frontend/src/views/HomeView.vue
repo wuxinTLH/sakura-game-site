@@ -51,6 +51,13 @@
                     <option value="newest">最新上架</option>
                     <option value="hottest">最多游玩</option>
                 </select>
+                <!-- ★ 视图切换（问题3） -->
+                <div class="view-toggle">
+                    <button class="view-btn" :class="{ active: viewMode === 'list' }"
+                        @click="viewMode = 'list'" title="列表视图">☰</button>
+                    <button class="view-btn" :class="{ active: viewMode === 'grid' }"
+                        @click="viewMode = 'grid'" title="网格视图">⊞</button>
+                </div>
             </div>
 
             <!-- 错误提示 -->
@@ -60,8 +67,9 @@
             </div>
 
             <!-- 游戏列表 -->
-            <div class="game-list" v-if="store.list.length">
+            <div class="game-list" :class="viewMode" v-if="store.list.length">
                 <GameCard v-for="(game, i) in store.list" :key="game.id" :game="game"
+                    :mode="viewMode"
                     :style="{ animationDelay: `${i * 0.05}s` }" />
             </div>
 
@@ -127,6 +135,7 @@ const searchText   = ref('')
 const currentSearch = ref('')
 const currentTag   = ref('')
 const sortBy       = ref<'order' | 'newest' | 'hottest'>('order')
+const viewMode     = ref<'list' | 'grid'>('list')   // ★ 视图模式（问题3）
 
 // ★ 动态标签列表（问题6）
 const allTags = ref<string[]>([])
@@ -331,6 +340,43 @@ const pageRange = computed<(number | '…')[]>(() => {
     display: flex;
     flex-direction: column;
     gap: 14px;
+}
+
+/* ★ 网格视图（问题3） */
+.game-list.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+/* 视图切换按钮 */
+.view-toggle {
+    display: flex;
+    gap: 2px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.view-btn {
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
+    background: var(--surface);
+    border: none;
+    cursor: pointer;
+    color: var(--ink-400);
+    transition: all var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.view-btn:hover { background: var(--sakura-100); color: var(--sakura-500); }
+.view-btn.active {
+    background: var(--sakura-500);
+    color: #fff;
 }
 
 /* ── 空状态 ──────────────────────────────────────────────────────── */

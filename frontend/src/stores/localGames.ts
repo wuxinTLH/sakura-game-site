@@ -11,6 +11,7 @@ export interface LocalGame {
     tags: string
     author: string
     code: string
+    image_url?: string   // ★ 问题4：封面图（URL 或 base64）
     createdAt: string
     updatedAt: string
 }
@@ -212,6 +213,7 @@ export const useLocalGamesStore = defineStore('localGames', () => {
             name: game.name,
             description: game.description,
             game_code: game.code,
+            image_url: game.image_url || '',  // ★ 问题4
             game_type: 'html',
             tags: game.tags,
             author: game.author,

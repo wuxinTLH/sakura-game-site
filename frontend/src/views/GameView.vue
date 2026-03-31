@@ -106,6 +106,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchGame, recordPlay } from '@/api/games'
 import { getCachedGame, setCachedGame } from '@/composables/useGameCache'
+import { writeSave, getSave, deleteSave, SAVE_KEY } from '@/api/saves'
 import type { Game } from '@/types/game'
 
 const route  = useRoute()
@@ -180,7 +181,77 @@ async function load() {
 }
 
 function onIframeLoad() {
-    // iframe 加载完毕，可扩展处理（如注入存档 API）
+    // ★ 问题2修复：向 iframe 注入存档桥接 API
+    // 游戏代码可通过 window.parent.postMessage 来读写存档
+    injectSaveBridge()
+}
+
+/**
+ * 存档桥接说明（供游戏开发者使用）：
+ *
+ * 向父页面发送消息即可读写存档：
+ *
+ *   // 写入存档（slot: 1~5，data: 任意可序列化对象）
+ *   window.parent.postMessage({ type: 'sakura:save', slot: 1, data: gameState, name: '第一关' }, '*')
+ *
+ *   // 读取存档
+ *   window.parent.postMessage({ type: 'sakura:load', slot: 1 }, '*')
+ *   // 父页面会回传：{ type: 'sakura:loaded', slot: 1, data: gameState }
+ *
+ *   // 删除存档
+ *   window.parent.postMessage({ type: 'sakura:delete', slot: 1 }, '*')
+ *
+ * 监听回传：
+ *   window.addEventListener('message', e => {
+ *     if (e.data?.type === 'sakura:loaded') { ... }
+ *     if (e.data?.type === 'sakura:saved')  { ... }
+ *     if (e.data?.type === 'sakura:error')  { console.error(e.data.message) }
+ *   })
+ */
+function injectSaveBridge() {
+    if (!iframeRef.value?.contentWindow) return
+    // 通知 iframe 桥接已就绪，传入游戏 ID 和 save_key
+    iframeRef.value.contentWindow.postMessage({
+        type: 'sakura:ready',
+        gameId: game.value?.id,
+        saveKey: SAVE_KEY,
+    }, '*')
+}
+
+async function handleIframeMessage(event: MessageEvent) {
+    const { type, slot, data, name } = event.data ?? {}
+    if (!game.value?.id || !type?.startsWith('sakura:')) return
+    const gameId = game.value.id
+    const iframe = iframeRef.value?.contentWindow
+
+    try {
+        if (type === 'sakura:save') {
+            // 写入存档
+            const slotNum = Number(slot) || 1
+            await writeSave(gameId, slotNum, {
+                save_data: JSON.stringify(data),
+                save_name: String(name || `存档 ${slotNum}`),
+            })
+            iframe?.postMessage({ type: 'sakura:saved', slot: slotNum }, '*')
+
+        } else if (type === 'sakura:load') {
+            // 读取存档
+            const slotNum = Number(slot) || 1
+            const res = await getSave(gameId, slotNum)
+            const saveData = res?.data?.save_data
+                ? JSON.parse(res.data.save_data)
+                : null
+            iframe?.postMessage({ type: 'sakura:loaded', slot: slotNum, data: saveData }, '*')
+
+        } else if (type === 'sakura:delete') {
+            // 删除存档
+            const slotNum = Number(slot) || 1
+            await deleteSave(gameId, slotNum)
+            iframe?.postMessage({ type: 'sakura:deleted', slot: slotNum }, '*')
+        }
+    } catch (e: any) {
+        iframe?.postMessage({ type: 'sakura:error', message: e.message }, '*')
+    }
 }
 
 function toggleFullscreen() {
@@ -196,11 +267,13 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(() => {
     load()
     document.addEventListener('keydown', handleKeydown)
+    window.addEventListener('message', handleIframeMessage)   // ★ 存档桥接监听
 })
 
 onUnmounted(() => {
     document.body.style.overflow = ''
-    document.removeEventListener('keydown', handleKeydown)   // 修复：原版误用 addEventListener
+    document.removeEventListener('keydown', handleKeydown)
+    window.removeEventListener('message', handleIframeMessage) // ★ 清理监听
     document.title = '桜游戏屋'
 })
 

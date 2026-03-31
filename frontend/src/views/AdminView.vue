@@ -214,6 +214,22 @@
                         </div>
                         <div class="stats-section">
                             <h4 class="stats-section-title">🔥 最热游戏 TOP 5</h4>
+                            <!-- ★ 问题7：横向柱状图 -->
+                            <div class="top5-chart" v-if="store.stats.topGames.length">
+                                <div class="chart-row" v-for="(g, i) in store.stats.topGames" :key="g.id">
+                                    <span class="chart-rank" :class="i < 3 ? `top${i + 1}` : ''">{{ i + 1 }}</span>
+                                    <span class="chart-name" :title="g.name">{{ g.name }}</span>
+                                    <div class="chart-bar-wrap">
+                                        <div class="chart-bar"
+                                            :style="{
+                                                width: maxPlays > 0 ? (g.play_count / maxPlays * 100) + '%' : '0%',
+                                                background: barColors[i] || barColors[4]
+                                            }">
+                                        </div>
+                                    </div>
+                                    <span class="chart-count">{{ g.play_count.toLocaleString() }}</span>
+                                </div>
+                            </div>
                             <div class="stats-rank">
                                 <div class="rank-item" v-for="(g, i) in store.stats.topGames" :key="g.id">
                                     <span class="rank-no" :class="i < 3 ? `top${i + 1}` : ''">{{ i + 1 }}</span>
@@ -466,6 +482,20 @@ function onGameSearch() {
 function loadGamesPage(page: number) {
     store.loadGames({ search: gameSearch.value, page })
 }
+
+// ★ 问题7：柱状图计算
+const barColors = [
+    'linear-gradient(90deg,#ff6b9d,#ff9ebf)',
+    'linear-gradient(90deg,#f48fb1,#f8bbd0)',
+    'linear-gradient(90deg,#e87da0,#f48fb1)',
+    'linear-gradient(90deg,#c44d75,#e87da0)',
+    'linear-gradient(90deg,#a03060,#c44d75)',
+]
+const maxPlays = computed(() => {
+    const top = store.stats?.topGames
+    if (!top?.length) return 1
+    return Math.max(...top.map((g: any) => g.play_count), 1)
+})
 
 function splitTags(tags: string) {
     return tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []
@@ -1269,6 +1299,78 @@ const localApiDoc: ApiGroup[] = [
     display: flex;
     flex-direction: column;
     gap: 20px;
+}
+
+/* ★ 问题7：TOP5 柱状图 */
+.top5-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.chart-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.chart-rank {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    background: var(--sakura-100, #fde8ef);
+    color: var(--sakura-600, #c44d75);
+}
+
+.chart-rank.top1 { background: #fef9c3; color: #92400e; }
+.chart-rank.top2 { background: #e2e8f0; color: #475569; }
+.chart-rank.top3 { background: #fed7aa; color: #9a3412; }
+
+.chart-name {
+    width: 100px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink-700, #333);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+
+.chart-bar-wrap {
+    flex: 1;
+    height: 18px;
+    background: var(--sakura-50, #fff5f8);
+    border-radius: 9px;
+    overflow: hidden;
+}
+
+.chart-bar {
+    height: 100%;
+    border-radius: 9px;
+    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    min-width: 4px;
+}
+
+.chart-count {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--sakura-600, #c44d75);
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 48px;
+    text-align: right;
 }
 
 .stats-loading {

@@ -412,9 +412,8 @@ async function loadGames(page = 1) {
 
 onMounted(() => {
     loadGames(1)
-    // ★ 拉取标签枚举（问题6）
+    store.fetchTotals()   // 修复(问题8)：启动时拉全量上下架数量
     fetchTags().then(t => allTags.value = t).catch(() => {})
-    // 点击外部关闭导出菜单
     document.addEventListener('click', onDocClick)
 })
 onUnmounted(() => document.removeEventListener('click', onDocClick))

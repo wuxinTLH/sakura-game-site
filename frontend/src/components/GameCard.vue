@@ -1,5 +1,6 @@
 <template>
-    <article class="game-card" @click="handleClick">
+    <!-- ★ 列表模式（默认）-->
+    <article v-if="!isGrid" class="game-card" @click="handleClick">
         <!-- 左：封面图 -->
         <div class="card-cover" @click.stop="handleClick">
             <!-- 有封面 URL 且未加载失败 -->
@@ -72,6 +73,46 @@
             </button>
         </div>
     </article>
+
+    <!-- ★ 网格模式（问题3）：紧凑卡片，封面为主 -->
+    <article v-else class="game-card-grid" @click="handleClick">
+        <div class="grid-cover">
+            <img v-if="props.game.image_url && !imgError"
+                 :src="props.game.image_url"
+                 :alt="props.game.name"
+                 loading="lazy"
+                 @error="imgError = true" />
+            <div v-else class="grid-cover-default">
+                <svg viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                    <defs>
+                        <linearGradient id="gcBg" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#ffe4ec"/>
+                            <stop offset="100%" stop-color="#ffd6e8"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="120" height="80" fill="url(#gcBg)"/>
+                    <g transform="translate(60,36)">
+                        <ellipse cx="0" cy="-14" rx="5.5" ry="10" fill="#f48fb1" opacity=".85" transform="rotate(0)"/>
+                        <ellipse cx="0" cy="-14" rx="5.5" ry="10" fill="#f48fb1" opacity=".85" transform="rotate(72)"/>
+                        <ellipse cx="0" cy="-14" rx="5.5" ry="10" fill="#f48fb1" opacity=".85" transform="rotate(144)"/>
+                        <ellipse cx="0" cy="-14" rx="5.5" ry="10" fill="#f48fb1" opacity=".85" transform="rotate(216)"/>
+                        <ellipse cx="0" cy="-14" rx="5.5" ry="10" fill="#f48fb1" opacity=".85" transform="rotate(288)"/>
+                        <circle cx="0" cy="0" r="5.5" fill="#fff"/>
+                        <circle cx="0" cy="0" r="3" fill="#f8bbd0"/>
+                    </g>
+                </svg>
+            </div>
+            <span class="grid-play-badge" v-if="props.game.play_count > 0">
+                ▶ {{ formatCount(props.game.play_count) }}
+            </span>
+        </div>
+        <div class="grid-info">
+            <h3 class="grid-name">{{ props.game.name }}</h3>
+            <div class="grid-tags" v-if="tagList.length">
+                <span v-for="tag in tagList.slice(0,2)" :key="tag" class="tag">{{ tag }}</span>
+            </div>
+        </div>
+    </article>
 </template>
 
 <script setup lang="ts">
@@ -79,7 +120,8 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { GameListItem } from '@/types/game'
 
-const props  = defineProps<{ game: GameListItem }>()
+const props  = defineProps<{ game: GameListItem; mode?: 'list' | 'grid' }>()
+const isGrid = computed(() => props.mode === 'grid')
 const router = useRouter()
 const imgError = ref(false)
 
@@ -296,5 +338,85 @@ function formatCount(n: number) {
         padding: 10px 14px;
         font-size: 0.78rem;
     }
+}
+/* ★ 网格卡片（问题3） */
+.game-card-grid {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all var(--transition);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    animation: fadeUp 0.4s ease both;
+    display: flex;
+    flex-direction: column;
+}
+
+.game-card-grid:hover {
+    border-color: var(--sakura-300);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-3px);
+}
+
+.grid-cover {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    overflow: hidden;
+    background: var(--sakura-100);
+}
+
+.grid-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+    display: block;
+}
+
+.game-card-grid:hover .grid-cover img {
+    transform: scale(1.06);
+}
+
+.grid-cover-default {
+    width: 100%;
+    height: 100%;
+}
+
+.grid-play-badge {
+    position: absolute;
+    bottom: 4px;
+    right: 5px;
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+    font-size: 0.62rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    backdrop-filter: blur(4px);
+}
+
+.grid-info {
+    padding: 8px 10px 10px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.grid-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--ink-900);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-display);
+}
+
+.grid-tags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
 }
 </style>
