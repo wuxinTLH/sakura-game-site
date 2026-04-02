@@ -1,50 +1,41 @@
 /**
- * 🌸 桜游戏屋 - 本地游戏数据存储方案
- * 文件: frontend/src/composables/useGameStorage.ts
+ * frontend/src/composables/useGameStorage.ts
+ * ★ P0 修复：游戏存档/进度/配置全部迁移到 IndexedDB
+ *   原来用 localStorage（5MB 上限），现在用 IndexedDB（数百 MB）
  *
- * 提供三层存储能力：
- *   1. 游戏存档 (saves)    —— 多槽位存档，含截图/时间戳
- *   2. 游戏进度 (progress) —— 通用 KV 进度数据（关卡/分数等）
- *   3. 游戏配置 (settings) —— 每款游戏独立的用户偏好设置
- *
- * 所有数据存储在 localStorage，按 gameId 命名空间隔离。
- * 游戏 iframe 通过 postMessage 与宿主页面通信来读写数据。
+ * 游戏 iframe 通过 postMessage 与宿主页面通信来读写数据（保持不变）。
  */
+
+import { ref, computed } from 'vue'
+import { openDB, type IDBPDatabase } from 'idb'
 
 // ─────────────────────────────────────────────
 // 类型定义
 // ─────────────────────────────────────────────
 
 export interface GameSave {
-    slot: number          // 存档槽位 (0-9)
-    name: string          // 存档名称（可自定义）
-    data: Record<string, unknown>  // 游戏自定义存档数据
-    screenshot?: string   // base64 截图（可选）
-    createdAt: string     // ISO 时间戳
+    slot: number
+    name: string
+    data: Record<string, unknown>
+    screenshot?: string
+    createdAt: string
     updatedAt: string
-    playtime?: number     // 累计游玩秒数
+    playtime?: number
 }
 
 export interface GameProgress {
     gameId: number
-    /** 关卡 / 章节 */
     level?: number | string
-    /** 最高分 */
     highScore?: number
-    /** 通关状态 */
     completed?: boolean
-    /** 最后游玩时间 */
     lastPlayedAt: string
-    /** 累计游玩次数 */
     playCount: number
-    /** 累计游玩秒数 */
     totalPlaytime: number
-    /** 游戏自定义扩展字段 */
     extra?: Record<string, unknown>
 }
 
 export interface GameSettings {
-    volume?: number       // 0-1
+    volume?: number
     bgmEnabled?: boolean
     sfxEnabled?: boolean
     difficulty?: string
@@ -53,37 +44,47 @@ export interface GameSettings {
 }
 
 // ─────────────────────────────────────────────
-// 存储键生成
+// IndexedDB 数据库（游戏运行时存储）
 // ─────────────────────────────────────────────
 
-const STORAGE_PREFIX = 'sakura_game'
-
-function saveKey(gameId: number) { return `${STORAGE_PREFIX}:${gameId}:saves` }
-function progressKey(gameId: number) { return `${STORAGE_PREFIX}:${gameId}:progress` }
-function settingsKey(gameId: number) { return `${STORAGE_PREFIX}:${gameId}:settings` }
-
-// ─────────────────────────────────────────────
-// 通用读写工具
-// ─────────────────────────────────────────────
-
-function readJSON<T>(key: string): T | null {
-    try {
-        const raw = localStorage.getItem(key)
-        return raw ? (JSON.parse(raw) as T) : null
-    } catch {
-        return null
+interface GameStorageDB {
+    saves: {
+        key: string           // `${gameId}:${slot}`
+        value: { key: string; gameId: number; slot: number } & GameSave
+        indexes: { 'by-gameId': number }
+    }
+    progress: {
+        key: number           // gameId
+        value: GameProgress
+    }
+    settings: {
+        key: number           // gameId
+        value: { gameId: number } & GameSettings
     }
 }
 
-function writeJSON<T>(key: string, value: T): boolean {
-    try {
-        localStorage.setItem(key, JSON.stringify(value))
-        return true
-    } catch (e) {
-        // localStorage 可能已满
-        console.error('[GameStorage] 写入失败:', e)
-        return false
-    }
+const GAME_STORAGE_DB = 'sakura-game-storage'
+const GAME_STORAGE_VERSION = 1
+
+let _gameStorageDB: IDBPDatabase<GameStorageDB> | null = null
+
+async function getGameStorageDB(): Promise<IDBPDatabase<GameStorageDB>> {
+    if (_gameStorageDB) return _gameStorageDB
+    _gameStorageDB = await openDB<GameStorageDB>(GAME_STORAGE_DB, GAME_STORAGE_VERSION, {
+        upgrade(db) {
+            if (!db.objectStoreNames.contains('saves')) {
+                const ss = db.createObjectStore('saves', { keyPath: 'key' })
+                ss.createIndex('by-gameId', 'gameId')
+            }
+            if (!db.objectStoreNames.contains('progress')) {
+                db.createObjectStore('progress', { keyPath: 'gameId' })
+            }
+            if (!db.objectStoreNames.contains('settings')) {
+                db.createObjectStore('settings', { keyPath: 'gameId' })
+            }
+        },
+    })
+    return _gameStorageDB
 }
 
 // ─────────────────────────────────────────────
@@ -92,84 +93,102 @@ function writeJSON<T>(key: string, value: T): boolean {
 
 const MAX_SLOTS = 10
 
-export function getSaves(gameId: number): GameSave[] {
-    return readJSON<GameSave[]>(saveKey(gameId)) ?? []
+export async function getSaves(gameId: number): Promise<GameSave[]> {
+    try {
+        const db = await getGameStorageDB()
+        const rows = await db.getAllFromIndex('saves', 'by-gameId', gameId)
+        return rows.sort((a, b) => a.slot - b.slot)
+    } catch { return [] }
 }
 
-export function getSave(gameId: number, slot: number): GameSave | null {
-    return getSaves(gameId).find(s => s.slot === slot) ?? null
+export async function getSave(gameId: number, slot: number): Promise<GameSave | null> {
+    try {
+        const db = await getGameStorageDB()
+        return await db.get('saves', `${gameId}:${slot}`) ?? null
+    } catch { return null }
 }
 
-export function writeSave(
+export async function writeSave(
     gameId: number,
     slot: number,
     data: Record<string, unknown>,
     options?: { name?: string; screenshot?: string; playtime?: number }
-): boolean {
+): Promise<boolean> {
     if (slot < 0 || slot >= MAX_SLOTS) return false
-
-    const saves = getSaves(gameId).filter(s => s.slot !== slot)
-    const now = new Date().toISOString()
-    const existing = getSave(gameId, slot)
-
-    const newSave: GameSave = {
-        slot,
-        name: options?.name ?? `存档 ${slot + 1}`,
-        data,
-        screenshot: options?.screenshot,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-        playtime: options?.playtime,
+    try {
+        const db = await getGameStorageDB()
+        const existing = await db.get('saves', `${gameId}:${slot}`)
+        const now = new Date().toISOString()
+        await db.put('saves', {
+            key: `${gameId}:${slot}`,
+            gameId,
+            slot,
+            name: options?.name ?? `存档 ${slot + 1}`,
+            data,
+            screenshot: options?.screenshot,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            playtime: options?.playtime,
+        })
+        return true
+    } catch (e) {
+        console.error('[GameStorage] writeSave 失败:', e)
+        return false
     }
-
-    saves.push(newSave)
-    saves.sort((a, b) => a.slot - b.slot)
-    return writeJSON(saveKey(gameId), saves)
 }
 
-export function deleteSave(gameId: number, slot: number): boolean {
-    const saves = getSaves(gameId).filter(s => s.slot !== slot)
-    return writeJSON(saveKey(gameId), saves)
+export async function deleteSave(gameId: number, slot: number): Promise<boolean> {
+    try {
+        const db = await getGameStorageDB()
+        await db.delete('saves', `${gameId}:${slot}`)
+        return true
+    } catch { return false }
 }
 
-export function clearAllSaves(gameId: number): boolean {
-    localStorage.removeItem(saveKey(gameId))
-    return true
+export async function clearAllSaves(gameId: number): Promise<boolean> {
+    try {
+        const db = await getGameStorageDB()
+        const rows = await db.getAllFromIndex('saves', 'by-gameId', gameId)
+        const tx = db.transaction('saves', 'readwrite')
+        for (const r of rows) tx.store.delete(r.key)
+        await tx.done
+        return true
+    } catch { return false }
 }
 
 // ─────────────────────────────────────────────
 // 进度管理
 // ─────────────────────────────────────────────
 
-export function getProgress(gameId: number): GameProgress {
-    return readJSON<GameProgress>(progressKey(gameId)) ?? {
-        gameId,
-        lastPlayedAt: new Date().toISOString(),
-        playCount: 0,
-        totalPlaytime: 0,
-    }
+export async function getProgress(gameId: number): Promise<GameProgress> {
+    const def: GameProgress = { gameId, lastPlayedAt: new Date().toISOString(), playCount: 0, totalPlaytime: 0 }
+    try {
+        const db = await getGameStorageDB()
+        return await db.get('progress', gameId) ?? def
+    } catch { return def }
 }
 
-export function updateProgress(
+export async function updateProgress(
     gameId: number,
     patch: Partial<Omit<GameProgress, 'gameId'>>
-): boolean {
-    const current = getProgress(gameId)
-    const updated: GameProgress = {
-        ...current,
-        ...patch,
-        gameId,
-        lastPlayedAt: new Date().toISOString(),
-    }
-    return writeJSON(progressKey(gameId), updated)
+): Promise<boolean> {
+    try {
+        const current = await getProgress(gameId)
+        const db = await getGameStorageDB()
+        await db.put('progress', {
+            ...current, ...patch,
+            gameId,
+            lastPlayedAt: new Date().toISOString(),
+        })
+        return true
+    } catch { return false }
 }
 
-/** 游戏结束时调用，记录本局数据 */
-export function recordSession(
+export async function recordSession(
     gameId: number,
     sessionData: { score?: number; level?: number | string; playtime?: number; completed?: boolean }
-): boolean {
-    const current = getProgress(gameId)
+): Promise<boolean> {
+    const current = await getProgress(gameId)
     return updateProgress(gameId, {
         highScore: Math.max(current.highScore ?? 0, sessionData.score ?? 0),
         level: sessionData.level ?? current.level,
@@ -183,165 +202,117 @@ export function recordSession(
 // 设置管理
 // ─────────────────────────────────────────────
 
-export function getSettings(gameId: number): GameSettings {
-    return readJSON<GameSettings>(settingsKey(gameId)) ?? {
-        volume: 0.8,
-        bgmEnabled: true,
-        sfxEnabled: true,
-    }
+export async function getSettings(gameId: number): Promise<GameSettings> {
+    const def: GameSettings = { volume: 0.8, bgmEnabled: true, sfxEnabled: true }
+    try {
+        const db = await getGameStorageDB()
+        const s = await db.get('settings', gameId)
+        return s ? { ...def, ...s } : def
+    } catch { return def }
 }
 
-export function saveSettings(gameId: number, settings: GameSettings): boolean {
-    return writeJSON(settingsKey(gameId), settings)
+export async function saveSettings(gameId: number, settings: GameSettings): Promise<boolean> {
+    try {
+        const db = await getGameStorageDB()
+        await db.put('settings', { ...settings, gameId })
+        return true
+    } catch { return false }
 }
 
-export function patchSettings(gameId: number, patch: Partial<GameSettings>): boolean {
-    const current = getSettings(gameId)
+export async function patchSettings(gameId: number, patch: Partial<GameSettings>): Promise<boolean> {
+    const current = await getSettings(gameId)
     return saveSettings(gameId, { ...current, ...patch })
 }
 
 // ─────────────────────────────────────────────
-// 存储使用情况
+// 存储使用情况（IndexedDB）
 // ─────────────────────────────────────────────
 
-export function getStorageInfo(): { used: number; total: number; usedKB: string } {
-    let used = 0
-    for (const key in localStorage) {
-        if (!Object.prototype.hasOwnProperty.call(localStorage, key)) continue
-        used += (localStorage.getItem(key)?.length ?? 0) * 2 // UTF-16
+export async function getStorageInfo(): Promise<{ used: number; quota: number; usedKB: string }> {
+    if ('storage' in navigator && 'estimate' in navigator.storage) {
+        const { usage = 0, quota = 0 } = await navigator.storage.estimate()
+        return { used: usage, quota, usedKB: (usage / 1024).toFixed(1) }
     }
-    return {
-        used,
-        total: 5 * 1024 * 1024, // 5MB 估算
-        usedKB: (used / 1024).toFixed(1),
-    }
+    return { used: 0, quota: 0, usedKB: '0' }
 }
 
-export function getGameStorageSize(gameId: number): number {
-    const keys = [saveKey(gameId), progressKey(gameId), settingsKey(gameId)]
-    return keys.reduce((total, k) => {
-        return total + (localStorage.getItem(k)?.length ?? 0) * 2
-    }, 0)
-}
-
-/** 清除某游戏的所有本地数据 */
-export function clearGameData(gameId: number): void {
-    localStorage.removeItem(saveKey(gameId))
-    localStorage.removeItem(progressKey(gameId))
-    localStorage.removeItem(settingsKey(gameId))
-}
-
-/** 导出某游戏所有数据为 JSON 字符串（用于备份/分享） */
-export function exportGameData(gameId: number): string {
-    return JSON.stringify({
-        gameId,
-        saves: getSaves(gameId),
-        progress: getProgress(gameId),
-        settings: getSettings(gameId),
-        exportedAt: new Date().toISOString(),
-    }, null, 2)
-}
-
-/** 从 JSON 字符串导入游戏数据（覆盖） */
-export function importGameData(json: string): boolean {
+export async function clearGameData(gameId: number): Promise<void> {
+    await clearAllSaves(gameId)
     try {
-        const data = JSON.parse(json)
-        const { gameId, saves, progress, settings } = data
-        if (!gameId) return false
-        if (saves) writeJSON(saveKey(gameId), saves)
-        if (progress) writeJSON(progressKey(gameId), progress)
-        if (settings) writeJSON(settingsKey(gameId), settings)
-        return true
-    } catch {
-        return false
-    }
+        const db = await getGameStorageDB()
+        const tx = db.transaction(['progress', 'settings'], 'readwrite')
+        tx.objectStore('progress').delete(gameId)
+        tx.objectStore('settings').delete(gameId)
+        await tx.done
+    } catch { /* ignore */ }
 }
 
 // ─────────────────────────────────────────────
 // Vue Composable 封装
 // ─────────────────────────────────────────────
 
-import { ref, computed } from 'vue'
-
 export function useGameStorage(gameId: number) {
-    const saves = ref<GameSave[]>(getSaves(gameId))
-    const progress = ref<GameProgress>(getProgress(gameId))
-    const settings = ref<GameSettings>(getSettings(gameId))
-
+    const saves = ref<GameSave[]>([])
+    const progress = ref<GameProgress>({ gameId, lastPlayedAt: '', playCount: 0, totalPlaytime: 0 })
+    const settings = ref<GameSettings>({ volume: 0.8, bgmEnabled: true, sfxEnabled: true })
     const hasSave = computed(() => saves.value.length > 0)
-    const storageSize = computed(() => getGameStorageSize(gameId))
 
-    function refreshSaves() { saves.value = getSaves(gameId) }
-    function refreshProgress() { progress.value = getProgress(gameId) }
-    function refreshSettings() { settings.value = getSettings(gameId) }
+    async function refreshSaves() { saves.value = await getSaves(gameId) }
+    async function refreshProgress() { progress.value = await getProgress(gameId) }
+    async function refreshSettings() { settings.value = await getSettings(gameId) }
 
-    function save(
+    async function init() {
+        await Promise.all([refreshSaves(), refreshProgress(), refreshSettings()])
+    }
+
+    async function save(
         slot: number,
         data: Record<string, unknown>,
         opts?: { name?: string; screenshot?: string; playtime?: number }
     ) {
-        const ok = writeSave(gameId, slot, data, opts)
-        if (ok) refreshSaves()
+        const ok = await writeSave(gameId, slot, data, opts)
+        if (ok) await refreshSaves()
         return ok
     }
 
-    function load(slot: number) {
+    async function load(slot: number) {
         return getSave(gameId, slot)
     }
 
-    function removeSave(slot: number) {
-        const ok = deleteSave(gameId, slot)
-        if (ok) refreshSaves()
+    async function removeSave(slot: number) {
+        const ok = await deleteSave(gameId, slot)
+        if (ok) await refreshSaves()
         return ok
     }
 
-    function saveProgress(patch: Partial<Omit<GameProgress, 'gameId'>>) {
-        const ok = updateProgress(gameId, patch)
-        if (ok) refreshProgress()
+    async function saveProgress(patch: Partial<Omit<GameProgress, 'gameId'>>) {
+        const ok = await updateProgress(gameId, patch)
+        if (ok) await refreshProgress()
         return ok
     }
 
-    function updateSettings(patch: Partial<GameSettings>) {
-        const ok = patchSettings(gameId, patch)
-        if (ok) refreshSettings()
+    async function updateSettings(patch: Partial<GameSettings>) {
+        const ok = await patchSettings(gameId, patch)
+        if (ok) await refreshSettings()
         return ok
     }
 
-    function clearAll() {
-        clearGameData(gameId)
-        refreshSaves()
-        refreshProgress()
-        refreshSettings()
+    async function clearAll() {
+        await clearGameData(gameId)
+        await init()
     }
 
     return {
-        // 状态
-        saves,
-        progress,
-        settings,
-        hasSave,
-        storageSize,
-        // 存档操作
-        save,
-        load,
-        removeSave,
-        clearAllSaves: () => { clearAllSaves(gameId); refreshSaves() },
-        // 进度操作
+        saves, progress, settings, hasSave,
+        init, save, load, removeSave,
+        clearAllSaves: async () => { await clearAllSaves(gameId); await refreshSaves() },
         saveProgress,
-        recordSession: (data: Parameters<typeof recordSession>[1]) => {
-            const ok = recordSession(gameId, data)
-            if (ok) refreshProgress()
+        recordSession: async (data: Parameters<typeof recordSession>[1]) => {
+            const ok = await recordSession(gameId, data)
+            if (ok) await refreshProgress()
             return ok
         },
-        // 设置操作
         updateSettings,
-        // 工具
         clearAll,
-        exportData: () => exportGameData(gameId),
-        importData: (json: string) => {
-            const ok = importGameData(json)
-            if (ok) { refreshSaves(); refreshProgress(); refreshSettings() }
-            return ok
-        },
     }
 }

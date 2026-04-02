@@ -1,24 +1,31 @@
 // config/database.js
+// ★ P1 修复：连接池增加 acquireTimeout，防止高并发下连接耗尽无限等待
 require('dotenv').config()
 const mysql = require('mysql2/promise')
 const { logger } = require('../middleware/logger')
 
 const poolConfig = {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'sakura_game_site',
-    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
+    host:             process.env.DB_HOST || 'localhost',
+    port:             parseInt(process.env.DB_PORT) || 3306,
+    user:             process.env.DB_USER || 'root',
+    password:         process.env.DB_PASSWORD || '',
+    database:         process.env.DB_NAME || 'sakura_game_site',
+    connectionLimit:  parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
     waitForConnections: true,
-    queueLimit: 0,
-    enableKeepAlive: true,
+    queueLimit:       50,           // ★ 最多排队 50 个请求，超出直接报错（原来 0=无限）
+    enableKeepAlive:  true,
     keepAliveInitialDelay: 10000,
-    connectTimeout: 10000,
+    connectTimeout:   10000,        // 单次连接超时 10s
+    // ★ P1 新增：从队列获取连接的超时时间，防止请求无限挂起
+    // mysql2 使用 waitForConnections+queueLimit 组合实现，
+    // 额外通过包装层加 Promise.race 超时保护
     charset: 'utf8mb4',
 }
 
 let pool = mysql.createPool(poolConfig)
+
+// 获取连接的超时时间（毫秒）
+const ACQUIRE_TIMEOUT_MS = parseInt(process.env.DB_ACQUIRE_TIMEOUT_MS) || 8000
 
 // 启动时验证连接
 async function testConnection() {
@@ -35,12 +42,10 @@ async function testConnection() {
     } catch (err) {
         logger.error('MySQL 连接失败', { message: err.message })
         console.error('❌  MySQL 连接失败:', err.message)
-        // 10秒后重试，最多3次
         scheduleReconnect(1)
     }
 }
 
-// 重连调度
 function scheduleReconnect(attempt) {
     if (attempt > 3) {
         logger.error('MySQL 重连失败次数过多，进程退出')
@@ -64,7 +69,6 @@ function scheduleReconnect(attempt) {
     }, delay)
 }
 
-// 连接池事件监听（底层连接错误）
 pool.on?.('error', err => {
     logger.error('MySQL 连接池异常', { message: err.message, code: err.code })
     if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
@@ -72,38 +76,56 @@ pool.on?.('error', err => {
     }
 })
 
-// 包装 execute，带超时和日志
+// ★ P1 修复：包装 execute，加 acquireTimeout 保护
+// 若在 ACQUIRE_TIMEOUT_MS 内未能从连接池获取连接，直接抛出 503 错误
+async function executeWithTimeout(fn) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(Object.assign(new Error('数据库连接池繁忙，请稍后重试'), { statusCode: 503 }))
+        }, ACQUIRE_TIMEOUT_MS)
+
+        fn().then(result => {
+            clearTimeout(timer)
+            resolve(result)
+        }).catch(err => {
+            clearTimeout(timer)
+            reject(err)
+        })
+    })
+}
+
 const db = {
     async execute(sql, params = []) {
         const start = Date.now()
-        try {
-            const result = await pool.execute(sql, params)
-            const ms = Date.now() - start
-            if (ms > 1000) {
-                logger.warn('慢查询', { sql: sql.slice(0, 120), ms })
+        return executeWithTimeout(async () => {
+            try {
+                const result = await pool.execute(sql, params)
+                const ms = Date.now() - start
+                if (ms > 500) {   // ★ 慢查询阈值从 1000ms 降至 500ms
+                    logger.warn('慢查询', { sql: sql.slice(0, 120), ms })
+                }
+                return result
+            } catch (err) {
+                logger.error('SQL 执行失败', {
+                    sql: sql.slice(0, 120),
+                    message: err.message,
+                    code: err.code,
+                })
+                throw err
             }
-            return result
-        } catch (err) {
-            logger.error('SQL 执行失败', {
-                sql: sql.slice(0, 120),
-                message: err.message,
-                code: err.code,
-            })
-            throw err
-        }
+        })
     },
 
     async query(sql, params = []) {
-        return pool.query(sql, params)
+        return executeWithTimeout(() => pool.query(sql, params))
     },
 
     async getConnection() {
-        return pool.getConnection()
+        return executeWithTimeout(() => pool.getConnection())
     },
 
-    // 事务封装
     async transaction(callback) {
-        const conn = await pool.getConnection()
+        const conn = await this.getConnection()
         await conn.beginTransaction()
         try {
             const result = await callback(conn)

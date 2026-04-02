@@ -226,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import { useLocalGamesStore } from '@/stores/localGames'
 import ToastContainer from '@/components/ToastContainer.vue'
@@ -279,9 +279,12 @@ function calcTotalUsed(): number {
   return total
 }
 
+// ★ P0 修复：存储百分比基于 IndexedDB 实际配额（不再硬编码 5MB）
+const storageQuotaBytes = ref(1024 * 1024 * 1024) // 默认 1GB，navigator.storage.estimate 会更新
 const storagePercent = computed(() => {
-  const pct = (storageInfo.value.usedBytes / (5 * 1024 * 1024)) * 100
-  return Math.min(Math.round(pct), 100)
+  if (!storageQuotaBytes.value) return 0
+  const pct = (storageInfo.value.usedBytes / storageQuotaBytes.value) * 100
+  return Math.min(Math.round(pct * 100) / 100, 100)
 })
 
 const progressClass = computed(() => {
@@ -335,8 +338,20 @@ function getProgressKeys(): string[] {
 }
 
 // ── 刷新所有统计 ─────────────────────────────────────────────
-function refresh() {
-  const usedBytes = calcTotalUsed()
+async function refresh() {
+  // ★ P0 修复：优先使用 navigator.storage.estimate 获取 IndexedDB 真实占用
+  let usedBytes = 0
+  if ('storage' in navigator && 'estimate' in navigator.storage) {
+    try {
+      const est = await navigator.storage.estimate()
+      usedBytes = est.usage ?? 0
+      storageQuotaBytes.value = est.quota ?? 1024 * 1024 * 1024
+    } catch {
+      usedBytes = calcTotalUsed()
+    }
+  } else {
+    usedBytes = calcTotalUsed()
+  }
   storageInfo.value = { usedBytes, usedKB: toKB(usedBytes) }
 
   hasDraft.value = !!localStorage.getItem(DRAFT_KEY)
@@ -362,7 +377,28 @@ function refresh() {
   cacheStats.value = getGameCacheStats()
 }
 
-onMounted(refresh)
+// ★ P0 修复：应用启动时初始化 IndexedDB（含 localStorage 历史数据迁移）
+onMounted(async () => {
+  // 初始化本地游戏 Store（IndexedDB 迁移 + 加载列表）
+  await localGamesStore.init()
+  // 刷新存储统计
+  refresh()
+
+  // ★ P0 修复：监听 Token 失效事件（由 api/admin.ts 在 401 时派发）
+  window.addEventListener('sakura:token-expired', onTokenExpired)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('sakura:token-expired', onTokenExpired)
+})
+
+// Token 失效处理：清除登录状态并提示用户
+function onTokenExpired(e: Event) {
+  const adminStore_local = useAdminStore()
+  adminStore_local.token = null
+  // 使用 toast 提示（如果可用）
+  alert('登录状态已过期，请重新登录管理后台。')
+}
 
 // ── 清理操作 ─────────────────────────────────────────────────
 

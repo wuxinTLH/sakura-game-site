@@ -87,7 +87,7 @@
                 <div class="stage-inner" :class="{ fullscreen: isFullscreen }">
                     <!-- 修复：srcdoc 绑定 gameCode（缓存版），而非直接 game.game_code -->
                     <iframe ref="iframeRef" class="game-iframe"
-                            sandbox="allow-scripts allow-same-origin allow-modals"
+                            sandbox="allow-scripts allow-modals allow-pointer-lock"
                             :srcdoc="gameCode"
                             frameborder="0"
                             allowfullscreen

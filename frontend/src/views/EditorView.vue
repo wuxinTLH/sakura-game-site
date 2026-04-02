@@ -21,11 +21,16 @@
                 <button class="btn-icon-text" :disabled="!canUndo" @click="doUndo()" title="撤销 Ctrl+Z">↩ 撤销</button>
                 <button class="btn-icon-text" :disabled="!canRedo" @click="doRedo()" title="重做 Ctrl+Y">↪ 重做</button>
                 <div class="topbar-divider"></div>
-                <select class="sel-lang" v-model="currentLang" @change="onLangChange" title="语言">
-                    <option value="html">HTML</option>
-                    <option value="javascript">JS</option>
-                    <option value="css">CSS</option>
-                </select>
+                <!-- ★ 新增：多文件标签页 -->
+                <div class="file-tabs">
+                    <button
+                        v-for="tab in fileTabs" :key="tab.key"
+                        class="file-tab"
+                        :class="{ active: activeTab === tab.key }"
+                        @click="switchTab(tab.key)"
+                        :title="tab.label">{{ tab.label }}</button>
+                </div>
+                <div class="topbar-divider"></div>
                 <button class="btn-icon-text" @click="toggleTheme" title="切换主题">
                     {{ currentTheme === 'dark' ? '☀️ 亮色' : '🌙 暗色' }}
                 </button>
@@ -75,7 +80,7 @@
                 </div>
                 <div class="preview-wrap">
                     <iframe ref="previewRef" class="preview-iframe"
-                        sandbox="allow-scripts allow-same-origin allow-modals" :srcdoc="previewCode" frameborder="0"
+                        sandbox="allow-scripts allow-modals allow-pointer-lock" :srcdoc="previewCode" frameborder="0"
                         style="background:#fff" />
                     <div class="preview-empty" v-if="!hasCode">
                         <span>🎮</span>
@@ -146,8 +151,8 @@
                 </div>
                 <div class="modal-actions">
                     <button class="btn-cancel" @click="showSaveModal = false">取消</button>
-                    <button class="btn-confirm" @click="confirmSave" :disabled="!saveForm.name.trim()">
-                        确认保存
+                    <button class="btn-confirm" @click="confirmSave" :disabled="!saveForm.name.trim() || saving">
+                        {{ saving ? '保存中…' : '确认保存' }}
                     </button>
                 </div>
             </div>
@@ -177,6 +182,59 @@ import AssetManager from '@/components/AssetManager.vue'
 import { useLocalAssetsStore, type LocalAsset } from '@/stores/localAssets'
 
 const store = useLocalGamesStore()
+
+// ── ★ 新增：多文件标签页 ─────────────────────────────────────────────
+type TabKey = 'html' | 'css' | 'js' | 'single'
+interface FileTab { key: TabKey; label: string }
+
+const fileTabs: FileTab[] = [
+    { key: 'single', label: '单文件' },
+    { key: 'html', label: 'HTML' },
+    { key: 'css', label: 'CSS' },
+    { key: 'js', label: 'JS' },
+]
+const activeTab = ref<TabKey>('single')
+const multiFiles = ref({
+    html: '<!-- HTML 结构 -->\n<div id="app">\n  <h1>我的游戏</h1>\n</div>',
+    css: '/* CSS 样式 */\nbody { background: #1a1a2e; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; }',
+    js: '// JavaScript 逻辑\nconsole.log("游戏已启动");',
+})
+
+// ★ 修复：用字符串拼接代替模板字面量，避免 Vue SFC 编译器误解 script 标签
+function buildMultiFileHtml(): string {
+    const openScript  = '<' + 'script>'
+    const closeScript = '<' + '/script>'
+    return [
+        '<!DOCTYPE html>', '<html lang="zh">', '<head>',
+        '<meta charset="UTF-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        '<title>我的游戏</title>', '<style>',
+        multiFiles.value.css,
+        '</style>', '</head>', '<body>',
+        multiFiles.value.html,
+        openScript, multiFiles.value.js, closeScript,
+        '</body>', '</html>',
+    ].join('\n')
+}
+
+// switchTab is defined here but uses getValue/setValue/setLang from useCodeMirror below
+// TypeScript hoists function declarations so this is fine at runtime; 
+// but we need the actual ref values at call time (not definition time)
+function switchTab(key: TabKey) {
+    if (activeTab.value === key) return
+    if (activeTab.value !== 'single') {
+        multiFiles.value[activeTab.value as 'html' | 'css' | 'js'] = getValue()
+    }
+    activeTab.value = key
+    const langMap: Record<TabKey, EditorLang> = { single: 'html', html: 'html', css: 'css', js: 'javascript' }
+    setLang(langMap[key])
+    if (key === 'single') {
+        setValue(code.value)
+    } else {
+        setValue(multiFiles.value[key as 'html' | 'css' | 'js'])
+        schedulePreview(buildMultiFileHtml())
+    }
+}
 const localAssetStore = useLocalAssetsStore()   // ★ 本地资源 Store（用于顶栏角标）
 const route = useRoute()
 
@@ -216,7 +274,7 @@ const saved = ref(false)
 
 const hasCode = computed(() => code.value.trim().length > 0)
 const codeLength = computed(() => code.value.length)
-const lineCount = computed(() => (code.value.match(/\n/g) || []).length + 1)
+const lineCount = computed(() => code.value.split('\n').length)
 
 const statusText = computed(() => saved.value ? '✅ 已保存' : hasCode.value ? '● 未保存' : '空')
 const statusClass = computed(() => saved.value ? 'status-saved' : hasCode.value ? 'status-dirty' : '')
@@ -235,29 +293,22 @@ function schedulePreview(val: string) {
 }
 
 // ── 编辑器暂存 ────────────────────────────────────────────────────
-const DRAFT_KEY = 'sakura_editor_draft'
+// ★ 已迁移至 IndexedDB：通过 store.saveDraft / loadDraft / clearDraft 读写
 const draftTime = ref('')
 const showDraftTip = ref(false)
 
-function saveDraft(val: string) {
-    if (!val.trim()) return
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        code: val,
-        savedAt: new Date().toISOString(),
-        editingId: editingId.value ?? '',
-    }))
-    draftTime.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+let draftTimer: ReturnType<typeof setTimeout>
+function scheduleDraft(val: string) {
+    clearTimeout(draftTimer)
+    draftTimer = setTimeout(async () => {
+        if (!val.trim()) return
+        await store.saveDraft(val, editingId.value ?? '')
+        draftTime.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    }, 3000)
 }
 
-function loadDraft(): { code: string; savedAt: string; editingId: string } | null {
-    try {
-        const raw = localStorage.getItem(DRAFT_KEY)
-        return raw ? JSON.parse(raw) : null
-    } catch { return null }
-}
-
-function restoreDraft() {
-    const draft = loadDraft()
+async function restoreDraft() {
+    const draft = await store.loadDraft()
     if (!draft) return
     setValue(draft.code)
     previewCode.value = draft.code
@@ -267,15 +318,9 @@ function restoreDraft() {
         .toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-function discardDraft() {
-    localStorage.removeItem(DRAFT_KEY)
+async function discardDraft() {
+    await store.clearDraft()
     showDraftTip.value = false
-}
-
-let draftTimer: ReturnType<typeof setTimeout>
-function scheduleDraft(val: string) {
-    clearTimeout(draftTimer)
-    draftTimer = setTimeout(() => saveDraft(val), 3000)
 }
 
 // ── 主题 / 语言切换 ───────────────────────────────────────────────
@@ -295,14 +340,14 @@ function openFullPreview() {
 }
 
 // ── 清空 ──────────────────────────────────────────────────────────
-function clearCode() {
+async function clearCode() {
     if (hasCode.value && !confirm('确认清空代码？')) return
     setValue('')
     code.value = ''
     previewCode.value = ''
     editingId.value = undefined
     saved.value = false
-    localStorage.removeItem(DRAFT_KEY)
+    await store.clearDraft()
     draftTime.value = ''
 }
 
@@ -330,119 +375,61 @@ function startResize(e: MouseEvent) {
 }
 
 // ── 模板 ──────────────────────────────────────────────────────────
+// ★ 修复：用字符串拼接代替模板字面量，避免 script 标签触发 Vue SFC 解析错误
+const _sc = '<' + 'script>'
+const _ec = '<' + '/script>'
+
 const templates = [
     {
         name: '空白 HTML',
-        code: `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<title>我的游戏</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #1a1a2e; color: #fff;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    min-height: 100vh; font-family: sans-serif;
-  }
-/* ★ 问题4：封面图上传区 */
-.cover-upload-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.cover-upload-btn {
-    padding: 6px 12px;
-    border-radius: 8px;
-    border: 1.5px solid var(--border, #f0d6df);
-    background: var(--surface, #fff);
-    color: var(--sakura-600, #c44d75);
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.cover-upload-btn:hover { background: var(--sakura-100, #fde8ef); }
-
-.cover-file-input { display: none; }
-
-.cover-url-input {
-    flex: 1;
-    min-width: 120px;
-    padding: 6px 10px;
-    border: 1.5px solid var(--border, #f0d6df);
-    border-radius: 8px;
-    font-size: 0.8rem;
-    font-family: inherit;
-    outline: none;
-}
-
-.cover-thumb-preview {
-    width: 60px;
-    height: 40px;
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--border, #f0d6df);
-    flex-shrink: 0;
-}
-
-.cover-thumb-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.cover-hint {
-    font-size: 0.72rem;
-    color: var(--ink-300, #ccc);
-    margin: 2px 0 0;
-}
-</style>
-</head>
-<body>
-  <h1>🎮 我的游戏</h1>
-  <script>
-    // 在这里写游戏逻辑
-  <\/script>
-</body>
-</html>`,
+        code: [
+            '<!DOCTYPE html>', '<html lang="zh">', '<head>',
+            '<meta charset="UTF-8">',
+            '<title>我的游戏</title>',
+            '<style>',
+            '  * { margin: 0; padding: 0; box-sizing: border-box; }',
+            '  body {',
+            '    background: #1a1a2e; color: #fff;',
+            '    display: flex; flex-direction: column;',
+            '    align-items: center; justify-content: center;',
+            '    min-height: 100vh; font-family: sans-serif;',
+            '  }',
+            '</style>', '</head>', '<body>',
+            '  <h1>🎮 我的游戏</h1>',
+            '  ' + _sc,
+            '    // 在这里写游戏逻辑',
+            '  ' + _ec,
+            '</body>', '</html>',
+        ].join('\n'),
     },
     {
         name: 'Canvas 模板',
-        code: `<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<title>Canvas 游戏</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #111; display: flex; align-items: center; justify-content: center; height: 100vh; }
-  canvas { border: 2px solid #4af476; border-radius: 8px; }
-</style>
-</head>
-<body>
-<canvas id="c" width="480" height="480"></canvas>
-<script>
-  const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d');
-  function draw() {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 在这里绘制游戏画面
-  }
-  function gameLoop() {
-    draw();
-    requestAnimationFrame(gameLoop);
-  }
-  gameLoop();
-<\/script>
-</body>
-</html>`,
+        code: [
+            '<!DOCTYPE html>', '<html lang="zh">', '<head>',
+            '<meta charset="UTF-8">',
+            '<title>Canvas 游戏</title>',
+            '<style>',
+            '  * { margin: 0; padding: 0; box-sizing: border-box; }',
+            '  body { background: #111; display: flex; align-items: center; justify-content: center; height: 100vh; }',
+            '  canvas { border: 2px solid #4af476; border-radius: 8px; }',
+            '</style>', '</head>', '<body>',
+            '<canvas id="c" width="480" height="480"></canvas>',
+            _sc,
+            "  const canvas = document.getElementById('c');",
+            "  const ctx = canvas.getContext('2d');",
+            '  function draw() {',
+            "    ctx.fillStyle = '#1a1a2e';",
+            '    ctx.fillRect(0, 0, canvas.width, canvas.height);',
+            '    // 在这里绘制游戏画面',
+            '  }',
+            '  function gameLoop() {',
+            '    draw();',
+            '    requestAnimationFrame(gameLoop);',
+            '  }',
+            '  gameLoop();',
+            _ec,
+            '</body>', '</html>',
+        ].join('\n'),
     },
 ]
 
@@ -457,29 +444,35 @@ function applyTemplate(tpl: { name: string; code: string }) {
 const showSaveModal = ref(false)
 const saveForm = ref({ name: '', description: '', tags: '', author: '', image_url: '' })
 
-function openSaveModal() {
+async function openSaveModal() {
     if (editingId.value) {
-        const g = store.getById(editingId.value)
+        const g = await store.getById(editingId.value)
         if (g) saveForm.value = { name: g.name, description: g.description, tags: g.tags, author: g.author, image_url: g.image_url || '' }
     }
     showSaveModal.value = true
 }
 
-function confirmSave() {
-    store.save({
-        id: editingId.value,
-        name: saveForm.value.name,
-        description: saveForm.value.description,
-        tags: saveForm.value.tags,
-        author: saveForm.value.author,
-        image_url: saveForm.value.image_url,   // ★ 问题4
-        code: getValue(),
-    })
-    if (!editingId.value) editingId.value = store.list[0]?.id
-    saved.value = true
-    showSaveModal.value = false
-    localStorage.removeItem(DRAFT_KEY)
-    draftTime.value = ''
+const saving = ref(false)
+async function confirmSave() {
+    saving.value = true
+    try {
+        const id = await store.save({
+            id: editingId.value,
+            name: saveForm.value.name,
+            description: saveForm.value.description,
+            tags: saveForm.value.tags,
+            author: saveForm.value.author,
+            image_url: saveForm.value.image_url,
+            code: getValue(),
+        })
+        if (!editingId.value) editingId.value = id
+        saved.value = true
+        showSaveModal.value = false
+        await store.clearDraft()
+        draftTime.value = ''
+    } finally {
+        saving.value = false
+    }
 }
 
 // ★ 问题4：封面图上传（FileReader → base64）
@@ -502,20 +495,21 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 // ── 生命周期 ──────────────────────────────────────────────────────
-onMounted(() => {
+onMounted(async () => {
     document.addEventListener('keydown', onKeydown)
 
     if (route.query.id) {
-        const g = store.getById(route.query.id as string)
+        const g = await store.getById(route.query.id as string)
         if (g) {
             setValue(g.code)
             previewCode.value = g.code
             editingId.value = g.id
+            code.value = g.code
             return
         }
     }
 
-    const draft = loadDraft()
+    const draft = await store.loadDraft()
     if (draft?.code?.trim()) {
         showDraftTip.value = true
     }
@@ -1109,6 +1103,12 @@ kbd {
     opacity: 0.4;
     cursor: not-allowed;
 }
+
+/* ★ 多文件标签页 */
+.file-tabs { display: flex; gap: 2px; background: #0f0f1a; border-radius: 8px; padding: 2px; }
+.file-tab { padding: 4px 12px; border-radius: 6px; font-size: 0.76rem; font-weight: 600; background: transparent; color: #666; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; }
+.file-tab:hover { color: #aaa; border-color: #2a2a44; }
+.file-tab.active { background: var(--sakura-600, #c44d75); color: #fff; border-color: var(--sakura-500, #e87da0); }
 
 @media (max-width: 640px) {
     .editor-topbar-right {

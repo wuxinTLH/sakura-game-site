@@ -1,9 +1,12 @@
 // src/stores/localGames.ts
+// ★ P0 修复：localStorage → IndexedDB（彻底解决 5MB 上限问题）
+// ★ P1 修复：所有 action 加 try/catch + error 状态（统一错误边界）
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { publishGame, uploadGameFile } from '@/api/admin'
+import { openDB, type IDBPDatabase } from 'idb'
 
-// ── 类型 ──────────────────────────────────────────────────────
+// ── 类型 ──────────────────────────────────────────────────────────
 export interface LocalGame {
     id: string
     name: string
@@ -11,253 +14,325 @@ export interface LocalGame {
     tags: string
     author: string
     code: string
-    image_url?: string   // ★ 问题4：封面图（URL 或 base64）
+    image_url?: string
     createdAt: string
     updatedAt: string
 }
 
-/** 游戏存档（多槽位） */
 export interface GameSave {
-    slot: number                      // 0-9
-    label: string                     // 存档名，如"第3关·存档"
-    data: Record<string, unknown>     // 游戏自定义数据
-    screenshot?: string               // base64 截图（可选）
-    savedAt: string                   // ISO 时间戳
-    playtime?: number                 // 本档累计游玩秒数
+    slot: number
+    label: string
+    data: Record<string, unknown>
+    screenshot?: string
+    savedAt: string
+    playtime?: number
 }
 
-/** 游戏进度（全局最优记录） */
 export interface GameProgress {
     highScore: number
     level: number | string
     completed: boolean
     playCount: number
-    totalPlaytime: number             // 秒
+    totalPlaytime: number
     lastPlayedAt: string
-    extra?: Record<string, unknown>   // 游戏自定义扩展
+    extra?: Record<string, unknown>
 }
 
-// ── 存储键 ────────────────────────────────────────────────────
-const GAMES_KEY = 'sakura_local_games'
-const DRAFT_KEY = 'sakura_editor_draft'
-const SAVE_PREFIX = 'sakura_save:'       // sakura_save:<gameId>
-const PROG_PREFIX = 'sakura_prog:'       // sakura_prog:<gameId>
+// ── IndexedDB Schema ──────────────────────────────────────────────
+interface SakuraDBSchema {
+    localGames: {
+        key: string
+        value: LocalGame
+        indexes: { 'by-updatedAt': string }
+    }
+    editorDraft: {
+        key: string
+        value: { id: string; code: string; editingId: string; savedAt: string }
+    }
+    gameSaves: {
+        key: string
+        value: { key: string; gameId: string; slot: number } & GameSave
+        indexes: { 'by-gameId': string }
+    }
+    gameProgress: {
+        key: string
+        value: { gameId: string } & GameProgress
+    }
+}
+
+const DB_NAME = 'sakura-local-db'
+const DB_VERSION = 1
+
+let _db: IDBPDatabase<SakuraDBSchema> | null = null
+
+async function getDB(): Promise<IDBPDatabase<SakuraDBSchema>> {
+    if (_db) return _db
+    _db = await openDB<SakuraDBSchema>(DB_NAME, DB_VERSION, {
+        upgrade(db) {
+            if (!db.objectStoreNames.contains('localGames')) {
+                const gs = db.createObjectStore('localGames', { keyPath: 'id' })
+                gs.createIndex('by-updatedAt', 'updatedAt')
+            }
+            if (!db.objectStoreNames.contains('editorDraft')) {
+                db.createObjectStore('editorDraft', { keyPath: 'id' })
+            }
+            if (!db.objectStoreNames.contains('gameSaves')) {
+                const ss = db.createObjectStore('gameSaves', { keyPath: 'key' })
+                ss.createIndex('by-gameId', 'gameId')
+            }
+            if (!db.objectStoreNames.contains('gameProgress')) {
+                db.createObjectStore('gameProgress', { keyPath: 'gameId' })
+            }
+        },
+    })
+    return _db
+}
+
+// ── localStorage 历史数据迁移（一次性）────────────────────────────
+async function migrateFromLocalStorage() {
+    const LEGACY_KEY = 'sakura_local_games'
+    const raw = localStorage.getItem(LEGACY_KEY)
+    if (!raw) return
+    try {
+        const games: LocalGame[] = JSON.parse(raw)
+        if (!Array.isArray(games) || games.length === 0) return
+        const db = await getDB()
+        const tx = db.transaction('localGames', 'readwrite')
+        for (const g of games) {
+            const existing = await tx.store.get(g.id)
+            if (!existing) await tx.store.put(g)
+        }
+        await tx.done
+        localStorage.removeItem(LEGACY_KEY)
+        // 同时清除旧草稿 key
+        localStorage.removeItem('sakura_editor_draft')
+        console.log(`[LocalGames] 已迁移 ${games.length} 个游戏到 IndexedDB`)
+    } catch (e) {
+        console.warn('[LocalGames] localStorage 迁移失败:', e)
+    }
+}
+
 const MAX_SLOTS = 10
 
-// ── 本地游戏列表的读写 ─────────────────────────────────────────
-function loadFromStorage(): LocalGame[] {
-    try {
-        const raw = localStorage.getItem(GAMES_KEY)
-        return raw ? JSON.parse(raw) : []
-    } catch {
-        return []
-    }
-}
-
-function saveToStorage(list: LocalGame[]) {
-    localStorage.setItem(GAMES_KEY, JSON.stringify(list))
-}
-
-// ── 存档 / 进度的读写（独立于游戏列表，按 gameId 隔离）─────────
-function readJSON<T>(key: string): T | null {
-    try {
-        const raw = localStorage.getItem(key)
-        return raw ? JSON.parse(raw) : null
-    } catch {
-        return null
-    }
-}
-
-function writeJSON<T>(key: string, value: T): void {
-    try {
-        localStorage.setItem(key, JSON.stringify(value))
-    } catch (e) {
-        console.error('[LocalGames] localStorage 写入失败（可能已满）:', e)
-    }
-}
-
-// ── Store ─────────────────────────────────────────────────────
+// ── Store ─────────────────────────────────────────────────────────
 export const useLocalGamesStore = defineStore('localGames', () => {
-    const list = ref<LocalGame[]>(loadFromStorage())
-
+    // 列表只保存元数据（不含 code），减少内存占用
+    const list = ref<Omit<LocalGame, 'code'>[]>([])
+    const loading = ref(false)
+    const error = ref<string | null>(null)
     const count = computed(() => list.value.length)
 
-    // ── 游戏列表 CRUD ──────────────────────────────────────────
+    // ── 初始化（App.vue onMounted 时调用一次）─────────────────────
+    async function init() {
+        await migrateFromLocalStorage()
+        await loadList()
+    }
 
-    function save(game: Omit<LocalGame, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
-        const now = new Date().toISOString()
-        if (game.id) {
-            const idx = list.value.findIndex(g => g.id === game.id)
-            if (idx !== -1) {
-                list.value[idx] = { ...list.value[idx], ...game, updatedAt: now } as LocalGame
-            }
-        } else {
-            const newGame: LocalGame = {
-                ...game,
-                id: `local_${Date.now()}`,
-                createdAt: now,
-                updatedAt: now,
-            }
-            list.value.unshift(newGame)
+    // ── 加载列表元数据（不含 code）────────────────────────────────
+    async function loadList() {
+        loading.value = true
+        error.value = null
+        try {
+            const db = await getDB()
+            const all = await db.getAllFromIndex('localGames', 'by-updatedAt')
+            list.value = all.reverse().map(({ code: _, ...meta }) => meta)
+        } catch (e: any) {
+            error.value = '加载本地游戏失败：' + (e?.message ?? '未知错误')
+        } finally {
+            loading.value = false
         }
-        saveToStorage(list.value)
     }
 
-    function remove(id: string) {
-        list.value = list.value.filter(g => g.id !== id)
-        saveToStorage(list.value)
+    // ── 按需读取完整代码（编辑/游玩时调用）────────────────────────
+    async function getCode(id: string): Promise<string> {
+        try {
+            const db = await getDB()
+            const game = await db.get('localGames', id)
+            return game?.code ?? ''
+        } catch { return '' }
     }
 
-    function getById(id: string): LocalGame | undefined {
-        return list.value.find(g => g.id === id)
+    // ── 读取完整游戏对象（含 code）────────────────────────────────
+    async function getById(id: string): Promise<LocalGame | undefined> {
+        try {
+            const db = await getDB()
+            return db.get('localGames', id)
+        } catch { return undefined }
     }
 
-    // ── 导出 HTML ──────────────────────────────────────────────
+    // ── 保存游戏（无大小限制）─────────────────────────────────────
+    async function save(
+        game: Omit<LocalGame, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+    ): Promise<string> {
+        error.value = null
+        try {
+            const db = await getDB()
+            const now = new Date().toISOString()
+            let record: LocalGame
 
-    function exportGame(id: string) {
-        const game = getById(id)
-        if (!game) return
-        const blob = new Blob([game.code], { type: 'text/html' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${game.name}.html`
-        a.click()
-        URL.revokeObjectURL(url)
+            if (game.id) {
+                const existing = await db.get('localGames', game.id)
+                record = { ...game, id: game.id, createdAt: existing?.createdAt ?? now, updatedAt: now } as LocalGame
+            } else {
+                const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+                record = { ...game, id, createdAt: now, updatedAt: now } as LocalGame
+            }
+
+            await db.put('localGames', record)
+            await loadList()
+            return record.id
+        } catch (e: any) {
+            error.value = '保存失败：' + (e?.message ?? '未知错误')
+            throw e
+        }
     }
 
-    // ── 编辑器草稿 ─────────────────────────────────────────────
-
-    function saveDraft(code: string) {
-        localStorage.setItem(DRAFT_KEY, code)
+    // ── 删除 ──────────────────────────────────────────────────────
+    async function remove(id: string) {
+        error.value = null
+        try {
+            const db = await getDB()
+            await db.delete('localGames', id)
+            const saves = await db.getAllFromIndex('gameSaves', 'by-gameId', id)
+            const tx = db.transaction(['gameSaves', 'gameProgress'], 'readwrite')
+            for (const s of saves) tx.objectStore('gameSaves').delete(s.key)
+            tx.objectStore('gameProgress').delete(id)
+            await tx.done
+            await loadList()
+        } catch (e: any) {
+            error.value = '删除失败：' + (e?.message ?? '未知错误')
+            throw e
+        }
     }
 
-    function loadDraft(): string | null {
-        return localStorage.getItem(DRAFT_KEY)
+    // ── 导出 HTML ─────────────────────────────────────────────────
+    async function exportGame(id: string) {
+        try {
+            const db = await getDB()
+            const game = await db.get('localGames', id)
+            if (!game) return
+            const blob = new Blob([game.code], { type: 'text/html' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url; a.download = `${game.name}.html`; a.click()
+            URL.revokeObjectURL(url)
+        } catch (e) { console.error('[LocalGames] exportGame 失败:', e) }
     }
 
-    function clearDraft() {
-        localStorage.removeItem(DRAFT_KEY)
+    // ── 编辑器草稿（IndexedDB 异步，不阻塞主线程）─────────────────
+    async function saveDraft(code: string, editingId = '') {
+        try {
+            if (!code.trim()) return
+            const db = await getDB()
+            await db.put('editorDraft', { id: 'current', code, editingId, savedAt: new Date().toISOString() })
+        } catch (e) { console.warn('[LocalGames] 草稿保存失败:', e) }
     }
 
-    // ── 游戏存档（多槽位）─────────────────────────────────────
-    // 以游戏 id 为命名空间，与游戏列表数据独立存储
-
-    function getSaves(gameId: string): GameSave[] {
-        return readJSON<GameSave[]>(SAVE_PREFIX + gameId) ?? []
+    async function loadDraft(): Promise<{ code: string; savedAt: string; editingId: string } | null> {
+        try {
+            const db = await getDB()
+            const d = await db.get('editorDraft', 'current')
+            return d?.code?.trim() ? d : null
+        } catch { return null }
     }
 
-    function writeSave(
-        gameId: string,
-        slot: number,
+    async function clearDraft() {
+        try {
+            const db = await getDB()
+            await db.delete('editorDraft', 'current')
+        } catch { /* ignore */ }
+    }
+
+    // ── 游戏存档 ──────────────────────────────────────────────────
+    async function getSaves(gameId: string): Promise<GameSave[]> {
+        try {
+            const db = await getDB()
+            const rows = await db.getAllFromIndex('gameSaves', 'by-gameId', gameId)
+            return rows.sort((a, b) => a.slot - b.slot)
+        } catch { return [] }
+    }
+
+    async function writeSave(
+        gameId: string, slot: number,
         data: Record<string, unknown>,
         options?: { label?: string; screenshot?: string; playtime?: number }
-    ): boolean {
+    ): Promise<boolean> {
         if (slot < 0 || slot >= MAX_SLOTS) return false
-        const saves = getSaves(gameId).filter(s => s.slot !== slot)
-        saves.push({
-            slot,
-            label: options?.label ?? `存档 ${slot + 1}`,
-            data,
-            screenshot: options?.screenshot,
-            savedAt: new Date().toISOString(),
-            playtime: options?.playtime,
-        })
-        saves.sort((a, b) => a.slot - b.slot)
-        writeJSON(SAVE_PREFIX + gameId, saves)
-        return true
+        try {
+            const db = await getDB()
+            await db.put('gameSaves', {
+                key: `${gameId}:${slot}`, gameId, slot,
+                label: options?.label ?? `存档 ${slot + 1}`,
+                data, screenshot: options?.screenshot,
+                savedAt: new Date().toISOString(), playtime: options?.playtime,
+            })
+            return true
+        } catch { return false }
     }
 
-    function deleteSave(gameId: string, slot: number) {
-        const saves = getSaves(gameId).filter(s => s.slot !== slot)
-        writeJSON(SAVE_PREFIX + gameId, saves)
+    async function deleteSave(gameId: string, slot: number) {
+        try {
+            const db = await getDB()
+            await db.delete('gameSaves', `${gameId}:${slot}`)
+        } catch { /* ignore */ }
     }
 
-    // ── 游戏进度 ───────────────────────────────────────────────
-
-    function getProgress(gameId: string): GameProgress {
-        return readJSON<GameProgress>(PROG_PREFIX + gameId) ?? {
-            highScore: 0,
-            level: 1,
-            completed: false,
-            playCount: 0,
-            totalPlaytime: 0,
-            lastPlayedAt: new Date().toISOString(),
-        }
+    // ── 游戏进度 ──────────────────────────────────────────────────
+    async function getProgress(gameId: string): Promise<GameProgress> {
+        const def: GameProgress = { highScore: 0, level: 1, completed: false, playCount: 0, totalPlaytime: 0, lastPlayedAt: new Date().toISOString() }
+        try {
+            const db = await getDB()
+            const p = await db.get('gameProgress', gameId)
+            return p ? { ...def, ...p } : def
+        } catch { return def }
     }
 
-    function updateProgress(gameId: string, patch: Partial<GameProgress>) {
-        const current = getProgress(gameId)
-        writeJSON(PROG_PREFIX + gameId, {
-            ...current,
-            ...patch,
-            // 高分只增不减
-            highScore: Math.max(current.highScore, patch.highScore ?? 0),
-            lastPlayedAt: new Date().toISOString(),
-        })
+    async function updateProgress(gameId: string, patch: Partial<GameProgress>) {
+        try {
+            const current = await getProgress(gameId)
+            const db = await getDB()
+            await db.put('gameProgress', {
+                ...current, ...patch, gameId,
+                highScore: Math.max(current.highScore, patch.highScore ?? 0),
+                lastPlayedAt: new Date().toISOString(),
+            })
+        } catch { /* ignore */ }
     }
 
-    // ── 发布到服务器 ───────────────────────────────────────────
-    /**
-     * 将本地游戏发布到后端数据库。
-     *
-     * 修复说明：改用 admin.ts 的 publishGame()，
-     * 该函数走带 x-admin-token 拦截器的 gameHttp 实例，
-     * 不再出现"未授权，请重新登录"的 401 错误。
-     */
+    // ── 发布到服务器 ───────────────────────────────────────────────
     async function publishToServer(id: string): Promise<number> {
-        const game = getById(id)
+        const game = await getById(id)
         if (!game) throw new Error('找不到本地游戏')
-
         const res = await publishGame({
-            name: game.name,
-            description: game.description,
-            game_code: game.code,
-            image_url: game.image_url || '',  // ★ 问题4
-            game_type: 'html',
-            tags: game.tags,
-            author: game.author,
+            name: game.name, description: game.description,
+            game_code: game.code, image_url: game.image_url || '',
+            game_type: 'html', tags: game.tags, author: game.author,
         })
-
-        // 兼容后端返回 { data: { id } } 或 { id } 两种结构
         return res?.data?.id ?? res?.id
     }
 
-    // ── 上传文件到服务器 ───────────────────────────────────────
-    /**
-     * 上传 .html/.vue/.ts 文件到后端。
-     *
-     * 修复说明：
-     *   1. 使用 admin.ts 的 uploadGameFile()，携带 token。
-     *   2. FormData 在调用方组装后直接传入，不在此处设置
-     *      Content-Type（浏览器自动补全含 boundary 的头）。
-     */
     async function uploadToServer(formData: FormData): Promise<number> {
         const res = await uploadGameFile(formData)
         return res?.data?.id ?? res?.id
     }
 
+    // ── 存储占用查询 ───────────────────────────────────────────────
+    async function getStorageEstimate() {
+        if ('storage' in navigator && 'estimate' in navigator.storage) {
+            const { usage = 0, quota = 0 } = await navigator.storage.estimate()
+            return { used: usage, quota, usedMB: (usage / 1024 / 1024).toFixed(1), quotaMB: (quota / 1024 / 1024).toFixed(0) }
+        }
+        return { used: 0, quota: 0, usedMB: '0', quotaMB: '?' }
+    }
+
     return {
-        list,
-        count,
-        // 游戏列表
-        save,
-        remove,
-        getById,
-        exportGame,
-        // 草稿
-        saveDraft,
-        loadDraft,
-        clearDraft,
-        // 存档
-        getSaves,
-        writeSave,
-        deleteSave,
-        // 进度
-        getProgress,
-        updateProgress,
-        // 发布 & 上传
-        publishToServer,
-        uploadToServer,
+        list, count, loading, error,
+        init, loadList,
+        save, getCode, getById, remove, exportGame,
+        saveDraft, loadDraft, clearDraft,
+        getSaves, writeSave, deleteSave,
+        getProgress, updateProgress,
+        publishToServer, uploadToServer,
+        getStorageEstimate,
     }
 })

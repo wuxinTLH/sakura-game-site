@@ -69,3 +69,4 @@ export const deleteSave = (gameId: number, slot: number) =>
     http.delete<{ success: boolean; message: string }>(`/${gameId}/${slot}`, {
         data: { save_key: SAVE_KEY },
     }).then(r => r.data)
+export const getSave = loadSave

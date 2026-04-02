@@ -237,20 +237,64 @@ router.put('/games/:id/toggle', adminAuth, [
 })
 
 // ── GET /api/admin/stats ──────────────────────────────────────────
+// ★ 增强：新增近30天游玩趋势 + 标签分布统计
 router.get('/stats', adminAuth, async (req, res) => {
     try {
         const [[{ total }]]      = await db.execute('SELECT COUNT(*) AS total FROM s_g_games')
         const [[{ active }]]     = await db.execute('SELECT COUNT(*) AS active FROM s_g_games WHERE is_active = 1')
         const [[{ totalPlays }]] = await db.execute('SELECT COALESCE(SUM(play_count), 0) AS totalPlays FROM s_g_games')
         const [topGames]         = await db.execute(
-            'SELECT id, name, play_count, author FROM s_g_games WHERE is_active = 1 ORDER BY play_count DESC LIMIT 5'
+            'SELECT id, name, play_count, author, tags FROM s_g_games WHERE is_active = 1 ORDER BY play_count DESC LIMIT 10'
         )
         const [recentGames]      = await db.execute(
-            'SELECT id, name, created_at, author FROM s_g_games ORDER BY created_at DESC LIMIT 5'
+            'SELECT id, name, created_at, author FROM s_g_games ORDER BY created_at DESC LIMIT 10'
         )
+
+        // ★ 新增：近30天每日新增游戏数（趋势数据）
+        const [trendRows] = await db.execute(`
+            SELECT
+                DATE(created_at) AS date,
+                COUNT(*) AS count
+            FROM s_g_games
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        `)
+
+        // 补全近30天中没有数据的日期（填0）
+        const trendMap = {}
+        trendRows.forEach(r => { trendMap[r.date] = r.count })
+        const trend = []
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date()
+            d.setDate(d.getDate() - i)
+            const ds = d.toISOString().slice(0, 10)
+            trend.push({ date: ds, count: trendMap[ds] ?? 0 })
+        }
+
+        // ★ 新增：标签分布统计（聚合所有上架游戏标签）
+        const [tagRows] = await db.execute(
+            'SELECT tags FROM s_g_games WHERE is_active = 1 AND tags IS NOT NULL AND tags != \'\''
+        )
+        const tagMap = new Map()
+        tagRows.forEach(({ tags }) => {
+            tags.split(',').map(t => t.trim()).filter(Boolean).forEach(tag => {
+                tagMap.set(tag, (tagMap.get(tag) ?? 0) + 1)
+            })
+        })
+        const tagDist = Array.from(tagMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([tag, count]) => ({ tag, count }))
+
         res.json({
             success: true,
-            data: { total, active, inactive: total - active, totalPlays, topGames, recentGames },
+            data: {
+                total, active, inactive: total - active,
+                totalPlays, topGames, recentGames,
+                trend,      // ★ 新增
+                tagDist,    // ★ 新增
+            },
         })
     } catch (err) {
         req.log?.error('GET /admin/stats 失败', { message: err.message })

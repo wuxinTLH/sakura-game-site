@@ -1,55 +1,45 @@
 // src/api/admin.ts
-import axios from 'axios'
+// ★ P0 修复：Token 过期（401）时弹出友好提示并跳转登录页，不再静默失败
+import axios, { type AxiosInstance } from 'axios'
 
-// ── /api/admin/* 的实例（原有，不动）─────────────────────────
-const http = axios.create({
-    baseURL: '/api/admin',
-    timeout: 10000,
-})
+// ── 创建带 token 的 axios 实例 ─────────────────────────────────────
+function createAuthHttp(baseURL: string, timeout = 10000): AxiosInstance {
+    const instance = axios.create({ baseURL, timeout })
 
-http.interceptors.request.use(config => {
-    const token = localStorage.getItem('admin_token')
-    if (token) config.headers['x-admin-token'] = token
-    return config
-})
+    // 请求拦截：动态注入最新 token
+    instance.interceptors.request.use(config => {
+        const token = localStorage.getItem('admin_token')
+        if (token) config.headers['x-admin-token'] = token
+        return config
+    })
 
-http.interceptors.response.use(
-    res => res,
-    err => {
-        const msg = err.response?.data?.message || err.message || '网络错误'
-        if (err.response?.status === 401) {
-            localStorage.removeItem('admin_token')
+    // 响应拦截：统一处理错误，特别处理 401
+    instance.interceptors.response.use(
+        res => res,
+        err => {
+            const msg = err.response?.data?.message || err.message || '网络错误'
+            if (err.response?.status === 401) {
+                // ★ P0 修复：Token 失效时清除本地状态 + 用户友好提示
+                localStorage.removeItem('admin_token')
+                // 派发自定义事件，让 App.vue 展示提示并跳转
+                window.dispatchEvent(new CustomEvent('sakura:token-expired', {
+                    detail: { redirect: window.location.pathname }
+                }))
+            }
+            return Promise.reject(new Error(msg))
         }
-        return Promise.reject(new Error(msg))
-    }
-)
+    )
 
-// ── /api/* 的实例（新增，用于发布/上传游戏）─────────────────
-// 发布游戏走 POST /api/games，上传走 POST /api/upload/game，
-// 两者不在 /api/admin 下，需要单独实例，但同样需要携带 token。
-const gameHttp = axios.create({
-    baseURL: '/api',
-    timeout: 15000,
-})
+    return instance
+}
 
-gameHttp.interceptors.request.use(config => {
-    const token = localStorage.getItem('admin_token')
-    if (token) config.headers['x-admin-token'] = token
-    return config
-})
+// /api/admin/* 的实例
+const http = createAuthHttp('/api/admin')
 
-gameHttp.interceptors.response.use(
-    res => res,
-    err => {
-        const msg = err.response?.data?.message || err.message || '网络错误'
-        if (err.response?.status === 401) {
-            localStorage.removeItem('admin_token')
-        }
-        return Promise.reject(new Error(msg))
-    }
-)
+// /api/* 的实例（发布/上传游戏用）
+const gameHttp = createAuthHttp('/api', 15000)
 
-// ── 原有接口（保持不变）──────────────────────────────────────
+// ── 接口定义 ──────────────────────────────────────────────────────
 export const adminLogin = (password: string) =>
     http.post('/login', { password }).then(r => r.data)
 
@@ -62,8 +52,10 @@ export const getSettings = () =>
 export const updateSettings = (settings: Record<string, boolean>) =>
     http.put('/settings', settings).then(r => r.data)
 
-export const adminGetGames = (params: { page?: number; limit?: number; search?: string }) =>
-    http.get('/games', { params }).then(r => r.data)
+export const adminGetGames = (params: {
+    page?: number; limit?: number; search?: string
+    status?: string; sort?: string
+}) => http.get('/games', { params }).then(r => r.data)
 
 export const adminUpdateGame = (id: number, payload: Record<string, any>) =>
     http.put(`/games/${id}`, payload).then(r => r.data)
@@ -80,7 +72,6 @@ export const getApiList = () =>
 export const getAdminStats = () =>
     http.get('/stats').then(r => r.data)
 
-// ── 新增：发布 & 上传接口 ─────────────────────────────────────
 export interface PublishGamePayload {
     name: string
     description?: string
@@ -92,20 +83,8 @@ export interface PublishGamePayload {
     image_url?: string
 }
 
-/**
- * 将本地游戏直接发布到后端数据库
- * 对应 POST /api/games（写操作，需管理员 token）
- */
 export const publishGame = (payload: PublishGamePayload) =>
     gameHttp.post('/games', payload).then(r => r.data)
 
-/**
- * 上传游戏文件（.html / .vue / .ts）
- * 对应 POST /api/upload/game（需管理员 token）
- *
- * ⚠️ 调用方直接传 FormData，此处不设置 Content-Type，
- *    让浏览器自动生成含 boundary 的 multipart/form-data 头，
- *    否则服务端 multer 无法解析请求体。
- */
 export const uploadGameFile = (formData: FormData) =>
     gameHttp.post('/upload/game', formData).then(r => r.data)

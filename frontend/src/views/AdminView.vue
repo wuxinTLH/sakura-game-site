@@ -212,6 +212,31 @@
                                 <div class="stat-label">总游玩次数</div>
                             </div>
                         </div>
+                        <!-- ★ 近30天趋势折线图 -->
+                        <div class="stats-section">
+                            <h4 class="stats-section-title">📈 近30天新增趋势</h4>
+                            <div class="trend-chart-wrap">
+                                <canvas ref="trendCanvasRef" class="trend-canvas" height="120"></canvas>
+                                <div class="trend-empty" v-if="!trendData.length">暂无趋势数据</div>
+                            </div>
+                        </div>
+                        <!-- ★ 标签分布 -->
+                        <div class="stats-section">
+                            <h4 class="stats-section-title">🏷 标签分布 TOP 10</h4>
+                            <div class="tag-dist-list" v-if="tagDist.length">
+                                <div class="tag-dist-item" v-for="t in tagDist" :key="t.tag">
+                                    <span class="tag-dist-name">{{ t.tag }}</span>
+                                    <div class="tag-dist-bar-wrap">
+                                        <!-- ★ 修复：tagDist[0]?.count ?? 1 防 undefined 和除零 -->
+                                        <div class="tag-dist-bar"
+                                            :style="{ width: (t.count / (tagDist[0]?.count ?? 1) * 100) + '%' }"></div>
+                                    </div>
+                                    <span class="tag-dist-count">{{ t.count }}</span>
+                                </div>
+                            </div>
+                            <p class="tag-dist-empty" v-else>暂无标签数据</p>
+                        </div>
+
                         <div class="stats-section">
                             <h4 class="stats-section-title">🔥 最热游戏 TOP 5</h4>
                             <!-- ★ 问题7：横向柱状图 -->
@@ -361,7 +386,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminStore, type SiteSettings, type AdminGame } from '@/stores/admin'
 // ★ 新增：素材管理页面组件
@@ -637,7 +662,137 @@ const localApiDoc: ApiGroup[] = [
             { method: 'GET', path: '/api-list', auth: true, desc: '获取全部接口列表（原版接口文档数据源）', params: '-' },
         ],
     },
+    {
+        group: '🐕 WatchDog 安全接口', base: '/api/watchdog', auth: true,
+        items: [
+            { method: 'GET', path: '/stats', auth: true, desc: '安全总览统计（请求数/错误率/封禁数）', params: '-' },
+            { method: 'GET', path: '/events', auth: true, desc: '安全事件日志（支持 severity/event_type/ip/page 筛选）', params: 'severity, event_type, ip, limit, page' },
+            { method: 'GET', path: '/blocklist', auth: true, desc: '当前封禁 IP 列表', params: '-' },
+            { method: 'POST', path: '/ban', auth: true, desc: '手动封禁 IP', params: 'ip*, reason, duration_hours' },
+            { method: 'DELETE', path: '/ban/:ip', auth: true, desc: '解封 IP', params: '-' },
+            { method: 'POST', path: '/resolve/:id', auth: true, desc: '标记事件已处置', params: '-' },
+            { method: 'GET', path: '/health', auth: true, desc: '最近系统健康快照', params: '-' },
+            { method: 'GET', path: '/top-threats', auth: true, desc: '威胁来源 TOP10', params: '-' },
+        ],
+    },
 ]
+
+// ── ★ 数据统计增强：趋势图 + 标签分布 ────────────────────────────────
+
+const trendCanvasRef = ref<HTMLCanvasElement>()
+const trendData = ref<{ date: string; count: number }[]>([])
+const tagDist = ref<{ tag: string; count: number }[]>([])
+
+function buildTrendFromStats() {
+    if (!store.stats) return
+    const serverTrend = store.stats.trend
+    if (serverTrend && serverTrend.length > 0) {
+        trendData.value = serverTrend.map((d: { date: string; count: number }) => ({
+            date: d.date.slice(5),
+            count: d.count,
+        }))
+        return
+    }
+    // 降级：从 recentGames 聚合近7天
+    const days: { date: string; count: number }[] = []
+    const recentGames = store.stats.recentGames || []
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        const ds = d.toISOString().slice(0, 10)
+        const cnt = recentGames.filter((g: { created_at: string }) => g.created_at.slice(0, 10) === ds).length
+        days.push({ date: ds.slice(5), count: cnt })
+    }
+    trendData.value = days
+}
+
+function buildTagDist() {
+    if (!store.stats) return
+    const serverTagDist = store.stats.tagDist
+    if (serverTagDist && serverTagDist.length > 0) {
+        tagDist.value = serverTagDist
+        return
+    }
+    const map = new Map<string, number>()
+    store.games.forEach((g: { tags?: string }) => {
+        if (!g.tags) return
+        g.tags.split(',').map((t: string) => t.trim()).filter(Boolean).forEach((tag: string) => {
+            map.set(tag, (map.get(tag) ?? 0) + 1)
+        })
+    })
+    tagDist.value = Array.from(map.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([tag, count]) => ({ tag, count }))
+}
+
+function drawTrendChart() {
+    const canvas = trendCanvasRef.value
+    if (!canvas || !trendData.value.length) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const W = canvas.offsetWidth || 600
+    canvas.width = W
+    const H = 120
+    ctx.clearRect(0, 0, W, H)
+    const data = trendData.value
+    const maxVal = Math.max(...data.map(d => d.count), 1)
+    const padL = 30, padR = 16, padT = 12, padB = 28
+    ctx.strokeStyle = 'rgba(196,77,117,0.1)'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= 4; i++) {
+        const y = padT + (H - padT - padB) * i / 4
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke()
+    }
+    interface Pt { x: number; y: number }
+    const pts: Pt[] = data.map((d, i) => ({
+        x: padL + (W - padL - padR) * i / (data.length - 1 || 1),
+        y: padT + (H - padT - padB) * (1 - d.count / maxVal),
+    }))
+    if (pts.length === 0) return
+    const firstPt = pts[0]!
+    const lastPt = pts[pts.length - 1]!
+    const grad = ctx.createLinearGradient(0, padT, 0, H - padB)
+    grad.addColorStop(0, 'rgba(232,125,160,0.35)')
+    grad.addColorStop(1, 'rgba(232,125,160,0)')
+    ctx.beginPath()
+    ctx.moveTo(firstPt.x, H - padB)
+    pts.forEach(p => ctx.lineTo(p.x, p.y))
+    ctx.lineTo(lastPt.x, H - padB)
+    ctx.closePath()
+    ctx.fillStyle = grad
+    ctx.fill()
+    ctx.beginPath()
+    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y))
+    ctx.strokeStyle = '#e87da0'
+    ctx.lineWidth = 2.5
+    ctx.lineJoin = 'round'
+    ctx.stroke()
+    pts.forEach((p, i) => {
+        const item = data[i]
+        if (!item) return
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2)
+        ctx.fillStyle = '#fff'; ctx.fill()
+        ctx.strokeStyle = '#e87da0'; ctx.lineWidth = 2; ctx.stroke()
+        ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'
+        ctx.fillText(item.date, p.x, H - 4)
+        if (item.count > 0) {
+            ctx.fillStyle = '#c44d75'; ctx.font = 'bold 10px sans-serif'
+            ctx.fillText(String(item.count), p.x, p.y - 8)
+        }
+    })
+}
+
+watch(() => store.stats, async () => {
+    buildTrendFromStats()
+    buildTagDist()
+    await nextTick()
+    drawTrendChart()
+}, { deep: true })
+
+watch(() => store.games, () => { buildTagDist() }, { deep: true })
+
 </script>
 
 <style scoped>
@@ -1860,4 +2015,40 @@ const localApiDoc: ApiGroup[] = [
         gap: 8px;
     }
 }
+
+/* ── ★ 趋势图 ──────────────────────────────────────────────────────── */
+.trend-chart-wrap {
+    position: relative; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 16px; min-height: 144px;
+}
+.trend-canvas { width: 100%; display: block; }
+.trend-empty {
+    position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    color: var(--ink-200); font-size: 0.85rem;
+}
+/* ── ★ 标签分布 ─────────────────────────────────────────────────────── */
+.tag-dist-list { display: flex; flex-direction: column; gap: 7px; }
+.tag-dist-item { display: flex; align-items: center; gap: 10px; }
+.tag-dist-name {
+    width: 80px; flex-shrink: 0; font-size: 0.8rem;
+    color: var(--ink-600); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+.tag-dist-bar-wrap {
+    flex: 1; height: 8px; background: var(--sakura-100);
+    border-radius: 4px; overflow: hidden;
+}
+.tag-dist-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--sakura-400), var(--sakura-600));
+    border-radius: 4px; transition: width 0.5s ease; min-width: 4px;
+}
+.tag-dist-count {
+    width: 28px; text-align: right; font-size: 0.78rem;
+    font-weight: 600; color: var(--sakura-600); flex-shrink: 0;
+}
+.tag-dist-empty { color: var(--ink-200); font-size: 0.85rem; text-align: center; padding: 24px 0; }
+
 </style>
